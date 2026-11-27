@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { erpApi, lerPreco, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
+import React, { useEffect, useRef, useState } from 'react';
+import { erpApi, lerPreco, ListaCategorias, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
+import { chaveCategoria, ondeExiste, soSecaoDePizza } from '../../shared/categorias';
 import { IconeFechar } from './Icones';
 
 /**
@@ -212,6 +213,87 @@ function CamposPlataforma({ precos, padrao, mudar }: { precos: Precos; padrao: s
   );
 }
 
+/** Categoria do produto: lista das plataformas com onde cada uma existe, ou um nome novo digitado. */
+function CampoCategoria({
+  valor,
+  doErp,
+  doEspelho,
+  pizzaNativa,
+  invalido,
+  campo,
+  mudar,
+}: {
+  valor: string;
+  doErp: string[];
+  doEspelho: string[];
+  pizzaNativa: boolean;
+  invalido: boolean;
+  campo: React.Ref<HTMLInputElement>;
+  mudar: (v: string) => void;
+}) {
+  const [lista, setLista] = useState<ListaCategorias | null>(null);
+  const [falhou, setFalhou] = useState('');
+  useEffect(() => {
+    void erpApi
+      .categorias()
+      .then(setLista)
+      .catch((err) => setFalhou(mensagemDe(err, 'Não foi possível consultar as categorias.')));
+  }, []);
+
+  const doHub = (lista?.categorias ?? []).filter((c) => !soSecaoDePizza(c));
+  // Sem leitura completa das plataformas, a ultima copia do cardapio completa a lista
+  const completa = !!lista && !Object.values(lista.plataformas).some((p) => p.estado === 'ERRO');
+  const opcoes = new Map<string, { nome: string; onde: string }>();
+  for (const c of doHub) opcoes.set(chaveCategoria(c.nome), { nome: c.nome, onde: ondeExiste(c, lista) });
+  for (const nome of completa ? doErp : [...doErp, ...doEspelho]) {
+    if (!opcoes.has(chaveCategoria(nome))) opcoes.set(chaveCategoria(nome), { nome, onde: completa ? ondeExiste(undefined, lista) : 'não conferida nas plataformas' });
+  }
+  const digitada = valor.trim() ? doHub.find((c) => chaveCategoria(c.nome) === chaveCategoria(valor)) : undefined;
+  const situacao = valor.trim() ? ondeExiste(digitada, lista) : '';
+  const recusa = lista?.plataformas['99FOOD']?.ultimaRecusa;
+
+  return (
+    <div className="pilha">
+      <div className="grid-2">
+        <label className="field">
+          <span className="field-label">Categoria (obrigatória)</span>
+          <input ref={campo} className="input" value={valor} maxLength={100} placeholder="Digite um nome ou escolha na lista" aria-invalid={invalido} onChange={(e) => mudar(e.target.value)} />
+        </label>
+        <label className="field">
+          <span className="field-label">Categorias existentes</span>
+          <select className="select" value="" onChange={(e) => e.target.value && mudar(e.target.value)}>
+            <option value="">{!lista && !falhou ? 'Consultando as plataformas...' : 'Escolher...'}</option>
+            {[...opcoes.values()]
+              .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+              .map((o) => (
+                <option key={o.nome} value={o.nome}>
+                  {o.nome}
+                  {o.onde ? ` (${o.onde})` : ''}
+                </option>
+              ))}
+          </select>
+        </label>
+      </div>
+      {situacao ? (
+        <span className={/ser[aá]|sendo|não/.test(situacao) ? 'observacao' : 'suave'} role="status">
+          <strong>{valor.trim()}</strong> · {situacao}.
+        </span>
+      ) : null}
+      <span className="suave">
+        Todo produto precisa de categoria. Se ela não existir em uma das plataformas, é criada lá ao publicar.
+        {pizzaNativa ? ' A pizza nativa do iFood fica em seção própria: a categoria vale na 99Food.' : ''}
+      </span>
+      {falhou ? <span className="observacao">{falhou} Digite o nome da categoria.</span> : null}
+      {lista?.avisos?.map((a) => (
+        <span className="suave" key={a}>
+          {a}
+        </span>
+      ))}
+      {recusa ? <span className="observacao">Último envio de categoria recusado pela 99Food: {recusa.erro}</span> : null}
+    </div>
+  );
+}
+
 /** Lista simples de opcoes (nome, preco, pausa), usada em grupos, massas e bordas. */
 function ListaOpcoes({ opcoes, mudar, rotulo, porPlataforma }: { opcoes: Opcao[]; mudar: (o: Opcao[]) => void; rotulo: string; porPlataforma: boolean }) {
   const alterar = (i: number, parte: Partial<Opcao>) => mudar(opcoes.map((o, j) => (j === i ? { ...o, ...parte } : o)));
@@ -244,6 +326,7 @@ export function EditorProduto({
   produto,
   tipo,
   categorias,
+  categoriasEspelho,
   aoFechar,
   aoSalvar,
   notificar,
@@ -251,6 +334,7 @@ export function EditorProduto({
   produto: ProdutoErp | null;
   tipo: ProdutoErp['tipo'];
   categorias: string[];
+  categoriasEspelho: string[];
   aoFechar: () => void;
   aoSalvar: () => Promise<void>;
   notificar: (tipo: 'ok' | 'erro', msg: string) => void;
@@ -258,6 +342,8 @@ export function EditorProduto({
   const [f, setF] = useState<Form>(() => paraForm(produto, tipo));
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState('');
+  const campoCategoria = useRef<HTMLInputElement>(null);
+  const semCategoria = !!erro && !f.categoria.trim();
   const mudar = (parte: Partial<Form>) => setF((atual) => ({ ...atual, ...parte }));
   const item = <T,>(lista: T[], i: number, parte: Partial<T>) => lista.map((x, j) => (j === i ? { ...x, ...parte } : x));
   const ehPizza = f.tipo === 'PIZZA';
@@ -265,6 +351,10 @@ export function EditorProduto({
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
+    if (!f.categoria.trim()) {
+      campoCategoria.current?.focus();
+      return setErro('Informe a categoria do produto: escolha uma da lista ou digite um nome novo.');
+    }
     setSalvando(true);
     setErro('');
     try {
@@ -307,15 +397,6 @@ export function EditorProduto({
               <span className="field-label">Nome</span>
               <input className="input" value={f.nome} maxLength={150} onChange={(e) => mudar({ nome: e.target.value })} required autoFocus />
             </label>
-            <label className="field">
-              <span className="field-label">Categoria (criada na plataforma se não existir)</span>
-              <input className="input" list="categorias-erp" value={f.categoria} maxLength={100} onChange={(e) => mudar({ categoria: e.target.value })} required />
-              <datalist id="categorias-erp">
-                {categorias.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </label>
             {!ehPizza ? (
               <label className="field">
                 <span className="field-label">Preço (R$)</span>
@@ -327,6 +408,18 @@ export function EditorProduto({
               <input className="input" value={f.codigo} maxLength={40} pattern="[A-Za-z0-9_\-]*" disabled={!!produto} onChange={(e) => mudar({ codigo: e.target.value })} />
             </label>
           </div>
+          <CampoCategoria
+            valor={f.categoria}
+            doErp={categorias}
+            doEspelho={categoriasEspelho}
+            pizzaNativa={ehPizza && f.pizzaNativa}
+            invalido={semCategoria}
+            campo={campoCategoria}
+            mudar={(categoria) => {
+              mudar({ categoria });
+              setErro('');
+            }}
+          />
           <label className="field">
             <span className="field-label">Descrição</span>
             <textarea className="textarea" rows={2} maxLength={1000} value={f.descricao} onChange={(e) => mudar({ descricao: e.target.value })} />

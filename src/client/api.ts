@@ -1,9 +1,17 @@
 import type {
+  AlteracaoLoja,
+  AvisoCatalogo,
+  CanalPublicacao,
   CategoriaEspelho,
+  ComandoLoja,
+  ConsultaLoja,
+  ListaCategorias,
   MotivoCancelamento,
   PedidoErp,
   ProdutoCadastrado,
   ProdutoErp,
+  ResultadoCategoria,
+  ResultadoLoja,
   StatusKanban,
 } from '../shared/tipos';
 
@@ -114,6 +122,9 @@ export const erpApi = {
   statusLoja: () => req<any>('/loja/status'),
   criarInterrupcao: (dados: { description: string; durationMinutes?: number; start?: string; end?: string }) => req('/loja/interrupcoes', 'POST', dados),
   removerInterrupcao: (interrupcao: string) => req(`/loja/interrupcoes/${id(interrupcao)}`, 'DELETE'),
+  dadosLoja: () => req<ConsultaLoja>('/loja/dados'),
+  alterarLoja: (dados: AlteracaoLoja, plataforma?: CanalPublicacao) => req<ResultadoLoja>(`/loja/dados${plataforma ? `?plataforma=${plataforma}` : ''}`, 'PATCH', dados),
+  funcionamentoLoja: (comando: ComandoLoja, plataforma?: CanalPublicacao) => req<ResultadoLoja>(`/loja/funcionamento${plataforma ? `?plataforma=${plataforma}` : ''}`, 'POST', comando),
   listarEntregas: () => req<any[]>('/entregas'),
   reprocessarEntregas: () => req<{ reprocessadas: number }>('/entregas/reprocessar', 'POST'),
   reativarPush: () => req('/webhook/reativar', 'POST'),
@@ -145,7 +156,11 @@ export const erpApi = {
   plataformas: (atualizar = false) => req<{ categorias: CategoriaEspelho[]; atualizadoEm: string | null; avisos: string[] }>(`/catalogo/plataformas${atualizar ? '?atualizar=true' : ''}`),
   ajustarItemPlataforma: (dados: { plataforma: string; itemId: string; preco?: number; status?: string }) => req('/catalogo/plataformas/itens', 'PATCH', dados),
   ajustarOpcaoPlataforma: (dados: { plataforma: string; optionId: string; groupId?: string; preco?: number; status?: string }) => req('/catalogo/plataformas/opcoes', 'PATCH', dados),
-  criarCategoria: (plataforma: string, nome: string) => req('/catalogo/plataformas/categorias', 'POST', { plataforma, nome }),
+  categorias: () => req<ListaCategorias>('/catalogo/categorias'),
+  /** Cria nas duas plataformas. */
+  criarCategoria: (nome: string) => req<ResultadoCategoria>('/catalogo/plataformas/categorias', 'POST', { nome }),
+  avisosCatalogo: () => req<AvisoCatalogo[]>('/catalogo/avisos'),
+  dispensarAviso: (aviso: string) => req(`/catalogo/avisos/${id(aviso)}`, 'DELETE'),
   alterarCategoria: (categoria: string, dados: { plataforma: string; nome?: string; status?: string; mover?: 'subir' | 'descer' }) =>
     req(`/catalogo/plataformas/categorias/${id(categoria)}`, 'PATCH', dados),
   naoVendaveis: (plataforma: string) => req<any>(`/catalogo/plataformas/nao-vendaveis?plataforma=${id(plataforma)}`),

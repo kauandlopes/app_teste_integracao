@@ -213,6 +213,25 @@ export function rotasConexao(): Router {
     repassar(res, await hubFetch(`/hub/v1/conexao/loja/interrupcoes/${encodeURIComponent(req.params.id)}`, { metodo: 'DELETE' }));
   });
 
+  // ── Dados e funcionamento da loja nos dois canais ──────────────────────────
+
+  /** Plataforma invalida e recusada: ignorar aplicaria a mudanca nas duas lojas. */
+  const lojaNoHub = (rota: 'dados' | 'funcionamento', metodo: 'GET' | 'PATCH' | 'POST') => async (req: Request, res: Response) => {
+    const plat = req.query.plataforma;
+    if (plat !== undefined && plat !== 'IFOOD' && plat !== '99FOOD') return res.status(400).json({ erro: 'Plataforma inválida.' });
+    const r = await hubFetch<any>(`/hub/v1/conexao/loja/${rota}${plat ? `?plataforma=${plat}` : ''}`, { metodo, ...(metodo === 'GET' ? {} : { body: req.body ?? {} }), timeoutMs: 65_000 });
+    if (r.json?.codigo === 'LOJA_NAO_ENCONTRADA') await atualizarEstadoConexao();
+    // Sem resposta do Hub a alteracao pode ter chegado a plataforma
+    if (!r.ok && metodo !== 'GET' && !r.json?.codigo && (r.status === 0 || r.status >= 500)) {
+      return res.status(502).json({ erro: `${mensagemDoHub(r)} A alteração pode ter sido aplicada: consulte a loja antes de repetir.` });
+    }
+    if (r.ok && !r.json?.plataformas) return res.status(502).json({ erro: 'O Hub respondeu sem o resultado por plataforma. Consulte a loja antes de repetir.' });
+    repassar(res, r);
+  };
+  api.get('/loja/dados', lojaNoHub('dados', 'GET'));
+  api.patch('/loja/dados', lojaNoHub('dados', 'PATCH'));
+  api.post('/loja/funcionamento', lojaNoHub('funcionamento', 'POST'));
+
   // ── Fila PUSH do Hub (homologacao) ─────────────────────────────────────────
 
   api.get('/entregas', async (req, res) => {

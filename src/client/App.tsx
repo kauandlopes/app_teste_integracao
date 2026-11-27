@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { erpApi, extrairStatus99, extrairStatusIfood, Fila, mensagemDe, nomeCanal, PedidoErp, ProdutoCadastrado, Sessao } from './api';
+import { DadosLoja } from './components/DadosLoja';
 import { GestorCatalogo } from './components/GestorCatalogo';
 import { IconeTema } from './components/Icones';
 import { KanbanPedidos } from './components/KanbanPedidos';
@@ -11,11 +12,12 @@ import { TelaEntrada } from './components/TelaEntrada';
 import { TokensRotas } from './components/TokensRotas';
 import { liberarAudio, tocarAlerta } from './som';
 
-type Aba = 'pedidos' | 'catalogo' | 'lojas' | 'tokens' | 'docs';
+type Aba = 'pedidos' | 'catalogo' | 'lojas' | 'dados' | 'tokens' | 'docs';
 const ABAS: Array<[Aba, string]> = [
   ['pedidos', 'Pedidos'],
   ['catalogo', 'Cardápio'],
   ['lojas', 'Lojas e operação'],
+  ['dados', 'Dados da loja'],
   ['tokens', 'Tokens e rotas'],
   ['docs', 'Documentação'],
 ];
@@ -339,6 +341,10 @@ export function App() {
             aoAtualizarStatusLoja={carregarStatusLoja}
             aoAbrirLogs={() => setLogsAberto(true)}
           />
+        ) : null}
+        {aba === 'dados' ? (
+          // A chave descarta o que foi lido se a conexao ou as lojas mudarem
+          <DadosLoja key={`${sessao.conexaoId}|${sessao.lojas.map((l) => `${l.plataforma}:${l.loja}`).sort().join()}`} sessao={sessao} notificar={notificar} aoAtualizarStatusLoja={carregarStatusLoja} />
         ) : null}
         {aba === 'tokens' ? <TokensRotas notificar={notificar} /> : null}
         {aba === 'docs' ? <PainelDocumentacao sessao={sessao} notificar={notificar} /> : null}

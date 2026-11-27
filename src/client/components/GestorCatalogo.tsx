@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { erpApi, EstadoProduto, formatarMoeda, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
+import { AvisoCatalogo, erpApi, EstadoProduto, formatarMoeda, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
+import { Contagem } from './Comuns';
 import { EditorProduto } from './EditorProduto';
 import { IconeAtualizar } from './Icones';
 import { BotaoDisponivel, Plataformas, PrecoEditavel } from './Plataformas';
@@ -40,6 +41,14 @@ export function GestorCatalogo({
   const [excluindo, setExcluindo] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [categoriasPlataforma, setCategoriasPlataforma] = useState<string[]>([]);
+  const [avisos, setAvisos] = useState<AvisoCatalogo[]>([]);
+
+  useEffect(() => {
+    void erpApi
+      .avisosCatalogo()
+      .then(setAvisos)
+      .catch(() => {});
+  }, [produtos]);
 
   useEffect(() => {
     void erpApi
@@ -48,10 +57,7 @@ export function GestorCatalogo({
       .catch(() => {});
   }, [produtos.length]);
 
-  const categorias = useMemo(
-    () => [...new Set([...produtos.map((p) => p.produto.categoria), ...categoriasPlataforma])].filter(Boolean).sort(),
-    [produtos, categoriasPlataforma],
-  );
+  const categorias = useMemo(() => [...new Set(produtos.map((p) => p.produto.categoria))].filter(Boolean).sort(), [produtos]);
   const skus = useMemo(() => new Set(produtos.map((p) => p.produto.codigo)), [produtos]);
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -123,120 +129,141 @@ export function GestorCatalogo({
       {aba === 'plataformas' ? (
         <Plataformas skusDoErp={skus} notificar={notificar} aoAbrirNoErp={abrirNoErp} />
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          {!filtrados.length ? (
-            <div className="vazio">Nenhum produto cadastrado. Crie um produto ou uma pizza: cada alteracao e enviada ao iFood e à 99Food.</div>
-          ) : null}
-          {filtrados.map((item) => {
-            const p = item.produto;
-            const [rotulo, cor] = ESTADOS[item.estado];
-            const listas = opcoesDe(p);
-            return (
-              <div key={p.codigo} className="item-espelho">
-                <div className="linha linha-espelho">
-                  {p.foto ? <img src={p.foto} alt="" className="miniatura" /> : null}
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <strong>{p.nome}</strong>
-                    {p.tipo !== 'SIMPLES' ? <span className="pill" style={{ marginLeft: 6 }}>{p.tipo === 'PIZZA' ? 'Pizza' : 'Combo'}</span> : null}
-                    {JSON.stringify(p).includes('"precosPlataforma"') ? <span className="pill pill-info" style={{ marginLeft: 6 }}>Preço por plataforma</span> : null}
-                    <div className="suave">
-                      {p.categoria} · {p.codigo}
-                    </div>
-                  </div>
-                  <div className="linha">
-                    <span className={`pill ${cor}`}>{rotulo}</span>
-                    {(['IFOOD', '99FOOD'] as const).map((c) => {
-                      const canal = item.canais[c];
-                      return canal ? (
-                        <span key={c} className={`pill ${CANAL[canal.estado]?.[1] ?? ''}`} title={canal.erro ?? canal.avisos?.join(' ') ?? ''}>
-                          {nomeCanal(c)}: {CANAL[canal.estado]?.[0] ?? canal.estado}
-                        </span>
-                      ) : null;
-                    })}
-                  </div>
-                  {p.tipo !== 'PIZZA' ? (
-                    <PrecoEditavel valor={p.preco} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { preco }), 'Preço salvo. Enviando.')} />
-                  ) : (
-                    <span className="suave">a partir de {formatarMoeda(p.preco)}</span>
-                  )}
-                  <BotaoDisponivel
-                    disponivel={p.disponivel}
-                    desabilitado={!!ocupado}
-                    aoClicar={() => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { disponivel: !p.disponivel }), 'Disponibilidade salva. Enviando.')}
-                  />
-                  {listas.length ? (
-                    <button type="button" className="btn btn-sm" onClick={() => setAberto(aberto === p.codigo ? null : p.codigo)}>
-                      {aberto === p.codigo ? 'Ocultar opções' : 'Opções'}
-                    </button>
-                  ) : null}
-                  <button type="button" className="btn btn-sm" onClick={() => setEditor({ produto: p, tipo: p.tipo })}>
-                    Editar
-                  </button>
-                  <button type="button" className="btn btn-sm" disabled={!!ocupado} onClick={() => void executar(p.codigo, () => erpApi.reenviarProduto(p.codigo), 'Produto colocado na fila.')}>
-                    Reenviar
-                  </button>
-                  <button type="button" className="btn btn-sm btn-danger" onClick={() => setExcluindo(excluindo === p.codigo ? null : p.codigo)}>
-                    Excluir
-                  </button>
-                </div>
-
-                {item.erro ? (
-                  <div className="banner banner-warn linha">
-                    <span style={{ flex: 1 }}>{item.erro}</span>
-                    <button type="button" className="btn btn-sm" onClick={aoAbrirLogs}>
-                      Ver logs
-                    </button>
-                  </div>
-                ) : null}
-                {Object.entries(item.canais).flatMap(([c, s]) => (s?.avisos ?? []).map((a) => <div className="suave" key={`${c}${a}`}>{nomeCanal(c)}: {a}</div>))}
-
-                {excluindo === p.codigo ? (
-                  <div className="banner banner-err linha">
-                    <span style={{ flex: 1 }}>Excluir {p.nome}?</span>
-                    <button type="button" className="btn btn-sm btn-danger" onClick={() => void executar(p.codigo, () => erpApi.excluirProduto(p.codigo), 'Exclusão enviada ao iFood e à 99Food.').then(() => setExcluindo(null))}>
-                      Excluir do ERP e das plataformas
-                    </button>
-                    <button type="button" className="btn btn-sm" onClick={() => void executar(p.codigo, () => erpApi.excluirProduto(p.codigo, true), 'Removido somente do ERP.').then(() => setExcluindo(null))}>
-                      Remover só do ERP
-                    </button>
-                    <button type="button" className="btn btn-sm" onClick={() => setExcluindo(null)}>
-                      Cancelar
-                    </button>
-                  </div>
-                ) : null}
-
-                {aberto === p.codigo
-                  ? listas.map((l) => (
-                      <div className="grupo-espelho" key={l.titulo}>
-                        <div className="field-label">{l.titulo}</div>
-                        {l.opcoes.map((o) => (
-                          <div className="linha linha-espelho" key={o.codigo}>
-                            <span style={{ flex: 1, minWidth: 140 }}>
-                              {o.nome} <span className="suave">· {o.codigo}</span>
-                            </span>
-                            {'porTamanho' in o && o.porTamanho ? (
-                              <span className="suave">preço por tamanho (editar o produto)</span>
-                            ) : (
-                              <PrecoEditavel valor={o.valor} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { preco }), 'Preço salvo. Enviando.')} />
-                            )}
-                            <BotaoDisponivel
-                              disponivel={o.disponivel}
-                              desabilitado={!!ocupado}
-                              aoClicar={() => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { disponivel: !o.disponivel }), 'Disponibilidade salva. Enviando.')}
-                            />
-                          </div>
-                        ))}
+        <>
+          <span className="suave">Todo produto precisa de categoria. Se ela não existir em uma das plataformas, é criada lá ao publicar.</span>
+          {avisos.map((a) => (
+            <div className="banner banner-warn linha" key={a.id}>
+              <span style={{ flex: 1, minWidth: 220 }}>{a.texto}</span>
+              <button type="button" className="btn btn-sm" onClick={() => void erpApi.dispensarAviso(a.id).then(() => setAvisos((lista) => lista.filter((x) => x.id !== a.id)))}>
+                Dispensar
+              </button>
+            </div>
+          ))}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {!filtrados.length ? (
+              <div className="vazio">Nenhum produto cadastrado. Crie um produto ou uma pizza: cada alteracao e enviada ao iFood e à 99Food.</div>
+            ) : null}
+            {filtrados.map((item) => {
+              const p = item.produto;
+              const [rotulo, cor] = ESTADOS[item.estado];
+              const listas = opcoesDe(p);
+              return (
+                <div key={p.codigo} className="item-espelho">
+                  <div className="linha linha-espelho">
+                    {p.foto ? <img src={p.foto} alt="" className="miniatura" /> : null}
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <strong>{p.nome}</strong>
+                      {p.tipo !== 'SIMPLES' ? <span className="pill" style={{ marginLeft: 6 }}>{p.tipo === 'PIZZA' ? 'Pizza' : 'Combo'}</span> : null}
+                      {JSON.stringify(p).includes('"precosPlataforma"') ? <span className="pill pill-info" style={{ marginLeft: 6 }}>Preço por plataforma</span> : null}
+                      <div className="suave">
+                        {p.categoria} · {p.codigo}
                       </div>
-                    ))
-                  : null}
-              </div>
-            );
-          })}
-        </div>
+                    </div>
+                    <div className="linha">
+                      <span className={`pill ${cor}`}>{rotulo}</span>
+                      {(['IFOOD', '99FOOD'] as const).map((c) => {
+                        const canal = item.canais[c];
+                        return canal ? (
+                          <span key={c} className={`pill ${CANAL[canal.estado]?.[1] ?? ''}`} title={canal.erro ?? canal.avisos?.join(' ') ?? ''}>
+                            {nomeCanal(c)}: {CANAL[canal.estado]?.[0] ?? canal.estado}
+                            {canal.envioEmSegundos !== undefined ? <Contagem segundos={canal.envioEmSegundos} antes=" · enviando em" /> : null}
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                    {p.tipo !== 'PIZZA' ? (
+                      <PrecoEditavel valor={p.preco} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { preco }), 'Preço salvo. Enviando.')} />
+                    ) : (
+                      <span className="suave">a partir de {formatarMoeda(p.preco)}</span>
+                    )}
+                    <BotaoDisponivel
+                      disponivel={p.disponivel}
+                      desabilitado={!!ocupado}
+                      aoClicar={() => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { disponivel: !p.disponivel }), 'Disponibilidade salva. Enviando.')}
+                    />
+                    {listas.length ? (
+                      <button type="button" className="btn btn-sm" onClick={() => setAberto(aberto === p.codigo ? null : p.codigo)}>
+                        {aberto === p.codigo ? 'Ocultar opções' : 'Opções'}
+                      </button>
+                    ) : null}
+                    <button type="button" className="btn btn-sm" onClick={() => setEditor({ produto: p, tipo: p.tipo })}>
+                      Editar
+                    </button>
+                    <button type="button" className="btn btn-sm" disabled={!!ocupado} onClick={() => void executar(p.codigo, () => erpApi.reenviarProduto(p.codigo), 'Produto colocado na fila.')}>
+                      Reenviar
+                    </button>
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => setExcluindo(excluindo === p.codigo ? null : p.codigo)}>
+                      Excluir
+                    </button>
+                  </div>
+
+                  {item.erro ? (
+                    <div className="banner banner-warn linha">
+                      <span style={{ flex: 1 }}>{item.erro}</span>
+                      <button type="button" className="btn btn-sm" onClick={aoAbrirLogs}>
+                        Ver logs
+                      </button>
+                    </div>
+                  ) : null}
+                  {Object.entries(item.canais).flatMap(([c, s]) =>
+                    (s?.avisos ?? [])
+                      // O texto do Hub traz os segundos do momento do envio; a contagem ao lado do canal e a atual
+                      .filter((a) => s.envioEmSegundos === undefined || !a.startsWith('Na fila:'))
+                      .map((a) => (
+                        <div className={s.estado === 'REMOVIDO' ? 'observacao' : 'suave'} key={`${c}${a}`}>
+                          {nomeCanal(c)}: {a}
+                        </div>
+                      )),
+                  )}
+
+                  {excluindo === p.codigo ? (
+                    <div className="banner banner-err linha">
+                      <span style={{ flex: 1 }}>Excluir {p.nome}?</span>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => void executar(p.codigo, () => erpApi.excluirProduto(p.codigo), 'Exclusão enviada ao iFood e à 99Food.').then(() => setExcluindo(null))}>
+                        Excluir do ERP e das plataformas
+                      </button>
+                      <button type="button" className="btn btn-sm" onClick={() => void executar(p.codigo, () => erpApi.excluirProduto(p.codigo, true), 'Removido somente do ERP.').then(() => setExcluindo(null))}>
+                        Remover só do ERP
+                      </button>
+                      <button type="button" className="btn btn-sm" onClick={() => setExcluindo(null)}>
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {aberto === p.codigo
+                    ? listas.map((l) => (
+                        <div className="grupo-espelho" key={l.titulo}>
+                          <div className="field-label">{l.titulo}</div>
+                          {l.opcoes.map((o) => (
+                            <div className="linha linha-espelho" key={o.codigo}>
+                              <span style={{ flex: 1, minWidth: 140 }}>
+                                {o.nome} <span className="suave">· {o.codigo}</span>
+                              </span>
+                              {'porTamanho' in o && o.porTamanho ? (
+                                <span className="suave">preço por tamanho (editar o produto)</span>
+                              ) : (
+                                <PrecoEditavel valor={o.valor} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { preco }), 'Preço salvo. Enviando.')} />
+                              )}
+                              <BotaoDisponivel
+                                disponivel={o.disponivel}
+                                desabilitado={!!ocupado}
+                                aoClicar={() => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { disponivel: !o.disponivel }), 'Disponibilidade salva. Enviando.')}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ))
+                    : null}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {editor ? (
-        <EditorProduto produto={editor.produto} tipo={editor.tipo} categorias={categorias} notificar={notificar} aoFechar={() => setEditor(null)} aoSalvar={aoRecarregar} />
+        <EditorProduto produto={editor.produto} tipo={editor.tipo} categorias={categorias} categoriasEspelho={categoriasPlataforma} notificar={notificar} aoFechar={() => setEditor(null)} aoSalvar={aoRecarregar} />
       ) : null}
     </div>
   );

@@ -18,11 +18,19 @@ Tela ─> valida e grava (tabela produtos) ─> fila_catalogo ─> Hub ─> iFoo
 | Preço de sabor, massa ou borda de pizza | Republica o produto (o Hub não aceita ajuste direto de preço em pizza) |
 | Excluir | `DELETE /conexao/catalogo/produtos/{codigo}` |
 | Consultar resultado da 99Food | `GET /conexao/catalogo/produtos/{codigo}` a cada 15 s enquanto `PROCESSANDO` |
+| Lista de categorias no cadastro | `GET /conexao/catalogo/categorias` ao abrir o cadastro (o ERP reaproveita a resposta por 60 s) |
+| Criar categoria avulsa ("Nas plataformas") | `POST /conexao/catalogo/categorias` sem `plataforma`: cria nas duas |
 
 Regras da fila:
 
 - Uma operação por vez, um produto por requisição, com tempo limite de 65 s.
-- Limite de frequência (errno 10005/12021, 429), erro 5xx ou rede: nova tentativa em 5, 15, 65, 120 e 300 s (8 vezes).
+- Limite de frequência (errno 10005/12021, 429), erro 5xx ou rede: nova tentativa em 5, 15, 65, 120 e 300 s (8 vezes),
+  nunca antes do `Retry-After` informado pelo Hub.
+- Cada canal traz `erroCodigo` (mostrado junto da mensagem), `avisos[]` e `envioEmSegundos`. O ERP guarda o horário
+  previsto do envio e mostra "enviando em Xs" enquanto o canal processa.
+- Aviso que chega com a exclusão (a 99Food recusou apagar e o item ficou pausado) permanece no topo do cardápio até
+  ser dispensado, mesmo com o produto já fora do ERP.
+- "Reenviar" fica sempre disponível: é o caminho quando o item foi apagado direto no painel da plataforma.
 - Recusa definitiva: o produto fica em "Erro" ou "Publicado em parte", com a mensagem da plataforma e "Reenviar".
 - `PATCH` de produto que o Hub ainda não conhece vira publicação completa.
 - A disponibilidade de tamanho, sabor, massa e borda vai na própria publicação. Na 99Food, pizza com preço de sabor
@@ -71,8 +79,8 @@ Cuidados (aplicados pelo ERP):
 - `grupos` vai sempre completo: omitido, o Hub remove os grupos.
 - Foto: JPG ou PNG, mínimo de 150 px; a tela reduz para menos de 700 KB (corpo do Hub até 1 MB). Sem foto, a atual
   é mantida na plataforma.
-- A categoria é casada pelo nome e criada se não existir. Só a pizza nativa do iFood ignora a categoria e ganha uma
-  seção com o nome do produto.
+- Categoria é obrigatória. É casada pelo nome (sem diferenciar maiúsculas, acentos e espaços) e criada na plataforma
+  em que não existir. Só a pizza nativa do iFood ignora a categoria e ganha uma seção com o nome do produto.
 - Acréscimo de sabor diferente por tamanho publica um item por tamanho na 99Food e no iFood em itens. Com mais de um
   sabor, os acréscimos são somados.
 - Reenviar uma pizza publicada como nativa exclui a antiga e publica no formato atual; uma seção que sobrar vazia só
@@ -130,7 +138,7 @@ Lê `GET /conexao/catalogo/unificado` e guarda uma cópia local por (plataforma,
 (leitura parcial), nada é apagado. Para itens que não nasceram no ERP:
 
 - preço e disponibilidade de item e de adicional;
-- criar e renomear categoria; ordenar e pausar só no iFood (na 99Food cada troca reenvia o cardápio inteiro);
+- criar categoria (nas duas plataformas, com o resultado de cada uma) e renomear; ordenar e pausar só no iFood (na 99Food cada troca reenvia o cardápio inteiro);
 - consulta de itens não vendáveis do iFood.
 
 Itens cadastrados no ERP aparecem com "Editar nos produtos do ERP": ajustes diretos seriam sobrescritos na próxima
@@ -141,3 +149,11 @@ publicação.
 Não há, pela rota de produto único: escolher um canal só, ordenar itens, excluir
 categoria, promoção, horários de venda, foto ou descrição por adicional ou sabor, sabor restrito a um tamanho,
 nem importação automática de itens que já existiam na plataforma.
+
+## 6. Dados da loja
+
+Tela "Dados da loja" (`src/client/components/DadosLoja.tsx`): `GET`/`PATCH /conexao/loja/dados` e
+`POST /conexao/loja/funcionamento`. Toda alteração pede confirmação. Consulta uma vez ao abrir e depois só no clique.
+Altera horários (iFood e 99Food), tempo de preparo e telefones (99Food), abrir, fechar, pausar e modo ocupado
+(99Food). Fora da tela: fotos, áreas de entrega, feriados, categorias da loja, forma de aceite e pedidos de
+cancelamento e reembolso.

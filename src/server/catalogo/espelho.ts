@@ -48,6 +48,13 @@ export async function atualizarEspelho() {
   return { resposta: r, avisos };
 }
 
+/** Categoria recem-criada aparece na tela sem gastar outra leitura do cardapio. */
+export function acrescentarCategoria(plataforma: CanalPublicacao, id: string, nome: string) {
+  const doCanal = lerEspelho().categorias.filter((c) => c.plataforma === plataforma);
+  if (doCanal.some((c) => c.id === id)) return;
+  gravarCategoria({ id, plataforma, nome, status: 'AVAILABLE', ordem: doCanal.length, itens: [] }, new Date().toISOString());
+}
+
 /** Reflete no espelho um ajuste aceito pela plataforma, sem gastar outra leitura do cardapio. */
 export function ajustarEspelho(plataforma: CanalPublicacao, alvo: { categoriaId?: string; itemId?: string; opcaoId?: string }, mudanca: { nome?: string; preco?: number; status?: 'AVAILABLE' | 'UNAVAILABLE'; ordem?: number }) {
   const agora = new Date().toISOString();

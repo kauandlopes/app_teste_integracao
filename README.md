@@ -8,8 +8,11 @@ Aplicativo independente que mostra como um ERP consome o **Hub Target Delivery**
 
 ## Documentação
 
+**Leia primeiro: [AVISOS.md](AVISOS.md)**
+
 | Documento | Conteúdo |
 |---|---|
+| [docs/hub/](docs/hub/) | Guia rápido e OpenAPI do Hub (cópia de 27/11/2026) |
 | [docs/PEDIDOS.md](docs/PEDIDOS.md) | Chegada sem perda, todos os eventos, ações por plataforma, disputas, cancelamento e reembolso |
 | [docs/CARDAPIO.md](docs/CARDAPIO.md) | Produto com adicionais e pizza, fila de publicação, diferenças entre plataformas |
 | [docs/VARIAVEIS-E-SEGURANCA-ERP.md](docs/VARIAVEIS-E-SEGURANCA-ERP.md) | Variáveis por campo, fronteiras de segurança e conexão |

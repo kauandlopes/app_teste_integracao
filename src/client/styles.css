@@ -890,3 +890,67 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* Dados da loja */
+.linha-campos {
+  align-items: flex-end;
+}
+
+.campo-curto {
+  max-width: 260px;
+}
+
+.ficha-linha {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.semana {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dia-horario {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.faixa,
+.telefone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.faixa .input {
+  width: 76px;
+}
+
+.telefone .input:first-child {
+  width: 70px;
+}
+
+.telefone .input:nth-child(2) {
+  width: 180px;
+}
+
+.telefone .select {
+  width: 120px;
+}
+
+@media (max-width: 720px) {
+  .ficha-linha,
+  .dia-horario {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

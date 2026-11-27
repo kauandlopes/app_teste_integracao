@@ -222,9 +222,23 @@ export type EstadoCanal = 'PUBLICADO' | 'PROCESSANDO' | 'REMOVIDO' | 'ERRO' | 'S
 export interface SituacaoCanal {
   estado: EstadoCanal;
   erro?: string;
+  /** Codigo estavel do erro informado pelo Hub. */
+  erroCodigo?: string;
   detalhes?: unknown;
   avisos?: string[];
+  /** Segundos que faltam para o envio na fila da 99Food (calculado a cada leitura). */
+  envioEmSegundos?: number;
+  /** Guardado pelo ERP: o Hub so informa os segundos na resposta da publicacao. */
+  envioPrevistoEm?: string;
   atualizadoEm?: string;
+}
+
+/** Aviso que continua na tela depois que o produto saiu do ERP (ex.: a 99Food so pausou o item excluido). */
+export interface AvisoCatalogo {
+  id: string;
+  codigo: string;
+  texto: string;
+  em: string;
 }
 
 export type EstadoProduto = 'NA_FILA' | 'ENVIANDO' | 'PROCESSANDO' | 'PUBLICADO' | 'PARCIAL' | 'ERRO' | 'SEM_LOJA' | 'REMOVENDO';
@@ -279,4 +293,136 @@ export interface CategoriaEspelho {
   status: 'AVAILABLE' | 'UNAVAILABLE';
   ordem: number;
   itens: ItemEspelho[];
+}
+
+// ── Categorias nas plataformas (GET catalogo/categorias) ─────────────────────
+
+export interface LeituraCategorias {
+  estado: 'OK' | 'SEM_LOJA' | 'ERRO';
+  erro?: string;
+  erroCodigo?: string;
+  retryAfterSegundos?: number;
+  lidoEm?: string;
+  ultimaRecusa?: { erro: string; em: string };
+}
+
+export interface CategoriaHub {
+  nome: string;
+  plataformas: CanalPublicacao[];
+  ausenteEm: CanalPublicacao[];
+  publicandoEm?: CanalPublicacao[];
+  canais?: Partial<Record<CanalPublicacao, Array<{ template?: string }>>>;
+}
+
+export interface ListaCategorias {
+  plataformas: Partial<Record<CanalPublicacao, LeituraCategorias>>;
+  categorias: CategoriaHub[];
+  avisos: string[];
+}
+
+export interface CategoriaCriada {
+  estado: 'CRIADA' | 'JA_EXISTE' | 'PROCESSANDO' | 'PENDENTE' | 'SEM_LOJA' | 'ERRO';
+  id?: string;
+  aviso?: string;
+  erro?: string;
+  erroCodigo?: string;
+  retryAfterSegundos?: number;
+}
+
+export interface ResultadoCategoria {
+  ok: boolean;
+  nome: string;
+  plataformas: Partial<Record<CanalPublicacao, CategoriaCriada>>;
+  avisos?: string[];
+}
+
+// ── Dados e funcionamento da loja (loja/dados e loja/funcionamento) ──────────
+
+export type AcaoLoja = 'ABRIR' | 'FECHAR' | 'PAUSAR' | 'OCUPADO' | 'NORMAL';
+
+export interface HorarioDia {
+  /** 1 = segunda ... 7 = domingo */
+  dia: number;
+  faixas: Array<{ inicio: string; fim: string }>;
+}
+
+export interface TelefoneLoja {
+  ddi: string;
+  numero: string;
+  tipo: 'CELULAR' | 'FIXO';
+}
+
+export interface ErroLoja {
+  status: number;
+  codigo: string;
+  erro: string;
+  retryAfterSegundos?: number;
+}
+
+/** Campo ausente ou null: a plataforma nao informa. */
+export interface DadosLoja {
+  horarios?: HorarioDia[] | null;
+  tempoPreparoMinutos?: number | null;
+  telefones?: TelefoneLoja[] | null;
+  situacao?: { aberta: boolean | null; titulo?: string | null; motivos?: Array<{ titulo?: string | null }> } | null;
+  pausas?: Array<{ id: string; descricao?: string | null; inicio?: string | null; fim?: string | null; ativa?: boolean }> | null;
+  aberturaAutomatica?: boolean | null;
+  modoOcupado?: { ativo: boolean; duracaoMinutos?: number | null; acrescimoPreparoMinutos?: number | null } | null;
+  aceitePedidos?: string | null;
+}
+
+export interface LojaPlataforma {
+  loja: { id?: string; nome?: string | null };
+  editaveis?: string[];
+  naoEditaveis?: string[];
+  funcionamento?: AcaoLoja[];
+  observacoes?: string[];
+  dados: DadosLoja | null;
+  erro?: ErroLoja;
+  falhas?: Array<ErroLoja & { secao: string }>;
+}
+
+export interface ConsultaLoja {
+  plataformas: Partial<Record<CanalPublicacao, LojaPlataforma>>;
+}
+
+export interface AlteracaoLoja {
+  horarios?: HorarioDia[];
+  tempoPreparoMinutos?: number;
+  telefones?: TelefoneLoja[];
+}
+
+export interface ComandoLoja {
+  acao: AcaoLoja;
+  duracaoMinutos?: number;
+  ateFimDoDia?: boolean;
+  acrescimoPreparoMinutos?: number;
+  aberturaAutomatica?: boolean;
+}
+
+export interface CampoAlterado {
+  estado: 'APLICADO' | 'EM_ANALISE' | 'FALHOU' | 'NAO_SUPORTADO';
+  erro?: ErroLoja;
+  motivo?: string;
+  avisos?: string[];
+}
+
+/** Resposta por plataforma de PATCH loja/dados (com campos) e de loja/funcionamento. */
+export interface ResultadoLoja {
+  ok?: boolean;
+  parcial?: boolean;
+  plataformas: Partial<
+    Record<
+      CanalPublicacao,
+      {
+        estado: 'APLICADO' | 'ENVIADO' | 'PARCIAL' | 'FALHOU' | 'NAO_SUPORTADO';
+        motivo?: string;
+        erro?: ErroLoja;
+        avisos?: string[];
+        campos?: Record<string, CampoAlterado>;
+        pausa?: { fim?: string };
+        pausasAgendadas?: string[];
+      }
+    >
+  >;
 }

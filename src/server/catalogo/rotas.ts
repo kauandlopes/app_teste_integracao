@@ -2,8 +2,10 @@ import { Router, Response } from 'express';
 import { db } from '../db.js';
 import { hubFetch, mensagemDoHub, RespostaHub } from '../hubClient.js';
 import { notificar } from '../stream.js';
-import type { CanalPublicacao } from '../../shared/tipos.js';
-import { ajustarEspelho, atualizarEspelho, lerEspelho } from './espelho.js';
+import type { CanalPublicacao, ResultadoCategoria } from '../../shared/tipos.js';
+import { dispensarAviso, listarAvisos } from './avisos.js';
+import { esquecerCategorias, lerCategorias } from './categorias.js';
+import { acrescentarCategoria, ajustarEspelho, atualizarEspelho, lerEspelho } from './espelho.js';
 import { normalizarProduto, ProdutoInvalido } from './produto.js';
 import { enfileirar, gravarProduto, listarProdutos, obterProduto, processarCatalogo } from './publicador.js';
 
@@ -107,6 +109,19 @@ export function rotasCatalogo(): Router {
     res.json({ ok: true });
   });
 
+  api.get('/avisos', (_req, res) => res.json(listarAvisos()));
+  api.delete('/avisos/:id', (req, res) => {
+    dispensarAviso(req.params.id);
+    res.json({ ok: true });
+  });
+
+  /** Categorias das duas plataformas, com onde cada uma existe (cadastro de produto). */
+  api.get('/categorias', async (_req, res) => {
+    const r = await lerCategorias();
+    if (!r.ok || !r.json?.plataformas) return falhaDoHub(res, r.ok ? { ...r, status: 502 } : r);
+    res.json(r.json);
+  });
+
   // ── O que esta nas plataformas (espelho e ajustes diretos) ─────────────────
 
   api.get('/plataformas', async (req, res) => {
@@ -156,12 +171,21 @@ export function rotasCatalogo(): Router {
     res.json({ ok: true });
   });
 
+  /** Sem plataforma o Hub cria nas duas lojas e responde por plataforma. */
   api.post('/plataformas/categorias', async (req, res) => {
-    const plat = plataformaDe(req.body?.plataforma);
+    const plat = req.body?.plataforma ? plataformaDe(req.body.plataforma) : null;
     const nome = String(req.body?.nome ?? '').trim();
     if (!nome) return res.status(400).json({ erro: 'Informe o nome da categoria.' });
-    const r = await hubFetch(`/hub/v1/conexao/catalogo/categorias?plataforma=${plat}`, { metodo: 'POST', body: { name: nome, status: 'AVAILABLE', template: 'DEFAULT' }, timeoutMs: 65_000 });
+    const r = await hubFetch<ResultadoCategoria>(`/hub/v1/conexao/catalogo/categorias${plat ? `?plataforma=${plat}` : ''}`, {
+      metodo: 'POST',
+      body: plat ? { name: nome, status: 'AVAILABLE', template: 'DEFAULT' } : { name: nome },
+      timeoutMs: 65_000,
+    });
+    esquecerCategorias();
     if (!r.ok) return falhaDoHub(res, r);
+    for (const [canal, c] of Object.entries(r.json?.plataformas ?? {})) {
+      if (c.estado === 'CRIADA' && c.id) acrescentarCategoria(plataformaDe(canal), c.id, nome);
+    }
     res.status(201).json(r.json ?? { ok: true });
   });
 

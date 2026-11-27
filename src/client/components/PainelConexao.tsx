@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ApiErro, Sessao, erpApi, extrairStatusIfood } from '../api';
+import { Confirmacao } from './Comuns';
 import { IconeAtualizar } from './Icones';
 import { MenuTresPontos } from './MenuTresPontos';
 
@@ -58,6 +59,9 @@ export function PainelConexao({
 
   const [pausaDesc, setPausaDesc] = useState('Pausa operacional');
   const [pausaMin, setPausaMin] = useState(30);
+  /** Pausa a criar ou remover, esperando o operador confirmar. */
+  const [confirmarPausa, setConfirmarPausa] = useState<{ remover?: { id: string; nome: string } } | null>(null);
+  const [enviandoPausa, setEnviandoPausa] = useState(false);
   const [mostrarDetalhesTecnicos, setMostrarDetalhesTecnicos] = useState(false);
   const [mostrarHomologacaoHub, setMostrarHomologacaoHub] = useState(false);
 
@@ -163,8 +167,15 @@ export function PainelConexao({
     }
   }
 
-  async function criarPausa(e: React.FormEvent) {
-    e.preventDefault();
+  async function enviarPausa() {
+    setEnviandoPausa(true);
+    if (confirmarPausa?.remover) await removerPausa(confirmarPausa.remover.id);
+    else await criarPausa();
+    setEnviandoPausa(false);
+    setConfirmarPausa(null);
+  }
+
+  async function criarPausa() {
     try {
       await erpApi.criarInterrupcao({ description: pausaDesc, durationMinutes: pausaMin });
       notificar('ok', `Pausa programada aplicada por ${pausaMin} min.`);
@@ -435,7 +446,13 @@ export function PainelConexao({
           </button>
         </div>
 
-        <form onSubmit={criarPausa} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', marginBottom: 12 }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setConfirmarPausa({});
+          }}
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', marginBottom: 12 }}
+        >
           <div className="field" style={{ flex: 1, minWidth: 200 }}>
             <label className="field-label">Motivo da pausa</label>
             <input className="input input-sm" value={pausaDesc} onChange={(e) => setPausaDesc(e.target.value)} required />
@@ -464,7 +481,7 @@ export function PainelConexao({
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 8, border: '1px solid var(--border)', borderRadius: 6 }}
               >
                 <span style={{ fontSize: 13 }}>{it.description || 'Pausa ativa'}</span>
-                <button type="button" className="btn btn-sm" onClick={() => removerPausa(it.id)}>
+                <button type="button" className="btn btn-sm" onClick={() => setConfirmarPausa({ remover: { id: it.id, nome: it.description || 'Pausa ativa' } })}>
                   Retomar / Remover
                 </button>
               </div>
@@ -472,6 +489,20 @@ export function PainelConexao({
           </div>
         ) : null}
       </div>
+
+      {confirmarPausa ? (
+        <Confirmacao
+          titulo={confirmarPausa.remover ? 'Remover a pausa?' : 'Pausar a loja no iFood?'}
+          confirmar={confirmarPausa.remover ? 'Remover pausa' : 'Pausar loja agora'}
+          perigo={!confirmarPausa.remover}
+          ocupado={enviandoPausa}
+          aoConfirmar={() => void enviarPausa()}
+          aoCancelar={() => setConfirmarPausa(null)}
+        >
+          <strong>iFood: {sessao.lojas.find((l) => l.plataforma === 'IFOOD')?.nome || 'loja desta conexão'}</strong>
+          <span>{confirmarPausa.remover ? `"${confirmarPausa.remover.nome}" será removida e a loja volta a receber pedidos dentro do horário.` : `"${pausaDesc}", por ${pausaMin} minutos.`}</span>
+        </Confirmacao>
+      ) : null}
 
       {/* Passo 4: Webhook & Homologação (Inspeção interna - apenas para testes, não vai para tela final do lojista) */}
       <div className="card">

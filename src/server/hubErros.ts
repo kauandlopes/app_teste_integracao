@@ -26,6 +26,9 @@ const O_QUE_FAZER: Record<string, string> = {
   PLATAFORMA_INDISPONIVEL: 'A plataforma não respondeu. Aguarde um instante e tente de novo.',
   DESTINO_NAO_AUTORIZADO: 'Confira a URL do webhook.',
   HUB_DESLIGADO: 'O Hub está desligado. Fale com a Target.',
+  VINCULO_NAO_ATIVO: 'Fale com a Target: o vínculo desta conexão não está ativo.',
+  IFOOD_PAUSA_JA_EXISTE: 'Em "Dados da loja", use "Abrir" antes de criar outra pausa.',
+  CATEGORIA_JA_EXISTE: 'Escolha outro nome.',
 };
 
 export function mensagemDoHub(r: { status: number; json: unknown; text: string; retryAfterS?: number }): string {

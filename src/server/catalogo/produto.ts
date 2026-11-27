@@ -127,7 +127,8 @@ function pizza(entrada: any): PizzaProduto {
 export function normalizarProduto(entrada: any): ProdutoErp {
   const titulo = nome(entrada?.nome, 'Produto');
   const codigoProduto = codigo(entrada?.codigo, titulo, new Set(), titulo);
-  const categoria = nome(entrada?.categoria, 'Categoria', 100);
+  if (!String(entrada?.categoria ?? '').trim()) falha('Informe a categoria do produto: escolha uma da lista ou digite um nome novo. Se ela não existir na plataforma, é criada ao publicar.');
+  const categoria = nome(entrada.categoria, 'Categoria', 100);
   const descricao = String(entrada?.descricao ?? '').trim();
   if (descricao.length > 1000) falha('A descrição passa de 1000 caracteres.');
   const foto = String(entrada?.foto ?? '').trim();

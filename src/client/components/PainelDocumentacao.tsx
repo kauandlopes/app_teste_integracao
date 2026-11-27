@@ -296,6 +296,13 @@ Authorization: Bearer {tokenConexao_hubi}`}
           <p style={{ margin: 0, fontSize: 13 }}>
             <strong>Combo:</strong> <code>tipo: "COMBO"</code>, preço no produto e um grupo por etapa (o primeiro é o principal).
           </p>
+          <p className="suave" style={{ margin: 0 }}>
+            <strong>Categoria é obrigatória:</strong> se não existir em uma plataforma, o Hub cria ao publicar. <code>GET /hub/v1/conexao/catalogo/categorias</code> mostra onde cada uma existe (na 99Food, 1 leitura por minuto);{' '}
+            <code>POST</code> na mesma rota, sem <code>?plataforma</code>, cria nas duas e responde por plataforma.
+          </p>
+          <p className="suave" style={{ margin: 0 }}>
+            <strong>Resultado por canal:</strong> a resposta é 200 mesmo com falha. Trate <code>canais.*.erroCodigo</code>, mostre <code>erro</code> e <code>avisos[]</code>; <code>envioEmSegundos</code> vem na resposta enquanto o envio à 99Food está na fila.
+          </p>
           <p className="suave" style={{ margin: 0 }}>Na 99Food a publicação reenvia o cardápio inteiro da loja: teste publicação apenas em loja de teste.</p>
         </div>
       ) : null}
@@ -354,6 +361,11 @@ Authorization: Bearer {tokenConexao_hubi}`}
                   <td>Status da Loja</td>
                   <td><code>GET /hub/v1/conexao/loja/status</code></td>
                   <td>Retorna bloco por canal e bloco <code>unificado</code> (<code>{'{ aberta, titulo }'}</code>), evitando parser específico no ERP.</td>
+                </tr>
+                <tr>
+                  <td>Dados e Funcionamento</td>
+                  <td><code>GET/PATCH /hub/v1/conexao/loja/dados</code> e <code>POST .../loja/funcionamento</code></td>
+                  <td>Resultado por plataforma: confira <code>ok</code>, <code>parcial</code>, <code>editaveis</code> e <code>retryAfterSegundos</code>. Altera a loja real: confirme com o operador antes.</td>
                 </tr>
               </tbody>
             </table>

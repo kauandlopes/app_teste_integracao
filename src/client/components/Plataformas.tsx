@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { CategoriaEspelho, erpApi, formatarMoeda, GrupoEspelho, ItemEspelho, lerPreco, mensagemDe, nomeCanal } from '../api';
+import { CategoriaCriada, CategoriaEspelho, erpApi, formatarMoeda, GrupoEspelho, ItemEspelho, lerPreco, mensagemDe, nomeCanal, ResultadoCategoria } from '../api';
+import { Contagem } from './Comuns';
 import { IconeAtualizar, IconeSeta } from './Icones';
+
+const CRIACAO: Record<CategoriaCriada['estado'], [string, string]> = {
+  CRIADA: ['Criada', 'pill-ok'],
+  JA_EXISTE: ['Já existia', 'pill-ok'],
+  PROCESSANDO: ['Enviada, processando', 'pill-info'],
+  PENDENTE: ['Nasce com o primeiro produto', 'pill-warn'],
+  SEM_LOJA: ['Sem loja vinculada', 'pill-warn'],
+  ERRO: ['Erro', 'pill-err'],
+};
 
 /** O que esta publicado em cada plataforma, com ajustes rapidos para itens que nao sao cadastrados no ERP. */
 export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number; desabilitado?: boolean; aoSalvar: (novo: number) => void }) {
@@ -56,6 +66,7 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
   const [aberto, setAberto] = useState<string | null>(null);
   const [edicaoCategoria, setEdicaoCategoria] = useState<{ id: string | null; nome: string } | null>(null);
   const [diagnostico, setDiagnostico] = useState('');
+  const [criada, setCriada] = useState<ResultadoCategoria | null>(null);
 
   async function carregar(atualizar = false) {
     const r = await erpApi.plataformas(atualizar);
@@ -75,6 +86,24 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
       notificar('ok', sucesso);
     } catch (err) {
       notificar('erro', mensagemDe(err, 'Falha na operação.'));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  /** Sem nova leitura do cardapio: a 99Food aceita 1 por minuto. */
+  async function criarNasDuas(nome: string) {
+    setOcupado(true);
+    setCriada(null);
+    try {
+      const r = await erpApi.criarCategoria(nome);
+      setCriada(r);
+      setEdicaoCategoria(null);
+      await carregar();
+      if (r.ok) notificar('ok', 'Categoria enviada. Veja o resultado por plataforma.');
+      else notificar('erro', 'Uma plataforma recusou a categoria. Veja o resultado.');
+    } catch (err) {
+      notificar('erro', mensagemDe(err, 'Falha ao criar a categoria.'));
     } finally {
       setOcupado(false);
     }
@@ -178,21 +207,15 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
           onSubmit={(e) => {
             e.preventDefault();
             const { id, nome } = edicaoCategoria;
-            void executar(
-              async () => {
-                if (id) await erpApi.alterarCategoria(id, { plataforma: canal, nome });
-                else {
-                  await erpApi.criarCategoria(canal, nome);
-                  await erpApi.plataformas(true);
-                }
-                setEdicaoCategoria(null);
-              },
-              id ? 'Categoria renomeada.' : 'Categoria criada.',
-            );
+            if (!id) return void criarNasDuas(nome);
+            void executar(async () => {
+              await erpApi.alterarCategoria(id, { plataforma: canal, nome });
+              setEdicaoCategoria(null);
+            }, 'Categoria renomeada.');
           }}
         >
           <strong>
-            {edicaoCategoria.id ? 'Renomear categoria' : 'Nova categoria'} ({nomeCanal(canal)})
+            {edicaoCategoria.id ? `Renomear categoria (${nomeCanal(canal)})` : 'Nova categoria (iFood e 99Food)'}
           </strong>
           <input className="input input-sm" style={{ flex: 1, minWidth: 200 }} autoFocus required value={edicaoCategoria.nome} onChange={(e) => setEdicaoCategoria({ ...edicaoCategoria, nome: e.target.value })} />
           <button type="submit" className="btn btn-sm btn-primary" disabled={ocupado}>
@@ -202,6 +225,31 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
             Cancelar
           </button>
         </form>
+      ) : null}
+
+      {criada ? (
+        <div className="card pilha" role="status">
+          <div className="linha">
+            <strong style={{ flex: 1 }}>Categoria "{criada.nome}"</strong>
+            <button type="button" className="btn btn-sm" onClick={() => setCriada(null)}>
+              Fechar
+            </button>
+          </div>
+          {Object.entries(criada.plataformas ?? {}).map(([p, r]) => (
+            <div className="linha" key={p}>
+              <span>{nomeCanal(p)}</span>
+              <span className={`pill ${CRIACAO[r.estado]?.[1] ?? ''}`}>{CRIACAO[r.estado]?.[0] ?? r.estado}</span>
+              <span className="suave">
+                {r.erro ? `${r.erroCodigo ? `[${r.erroCodigo}] ` : ''}${r.erro}` : r.aviso} {r.retryAfterSegundos ? <Contagem segundos={r.retryAfterSegundos} antes="Pode repetir em" depois="Já pode repetir." /> : null}
+              </span>
+            </div>
+          ))}
+          {criada.avisos?.map((a) => (
+            <span className="suave" key={a}>
+              {a}
+            </span>
+          ))}
+        </div>
       ) : null}
 
       {!doCanal.length ? <div className="card vazio">Nenhuma categoria em {nomeCanal(canal)}. Use "Puxar das plataformas".</div> : null}
