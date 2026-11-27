@@ -95,6 +95,8 @@ export interface ExtrasPedido {
   codigos: Array<{ rotulo: string; valor: string }>;
   pagamentos: Array<{ metodo: string; bandeira: string | null; valor: number; online: boolean }>;
   beneficios: Array<{ valor: number; quemPaga: string }>;
+  /** Taxas, gorjeta, valor a receber em dinheiro e repasse informados pela plataforma. */
+  valores: Array<{ rotulo: string; valor: number }>;
   agendamento: { inicioPreparo: string | null; entregaInicio: string | null; entregaFim: string | null } | null;
   pedidoTeste: boolean;
   /** Linhas da 99Food que aceitam "item em falta" (cancelamento parcial). */

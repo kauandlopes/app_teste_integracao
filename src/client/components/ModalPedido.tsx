@@ -179,6 +179,31 @@ export function ModalPedido({
                   Recusar
                 </button>
               </div>
+              {p.plataforma === 'IFOOD' && !p.simulado ? (
+                <div className="linha">
+                  <span className="field-label">Contraproposta</span>
+                  <select className="select input-sm" style={{ width: 200 }} value={campo('tipo')} onChange={(e) => definir('tipo', e.target.value)}>
+                    <option value="">Escolha o tipo</option>
+                    <option value="REFUND">Reembolso parcial</option>
+                    <option value="ADDITIONAL_TIME">Tempo adicional</option>
+                  </select>
+                  {campo('tipo') === 'REFUND' ? <input className="input input-sm preco" inputMode="decimal" placeholder="Valor R$" value={campo('valor')} onChange={(e) => definir('valor', e.target.value)} /> : null}
+                  {campo('tipo') === 'ADDITIONAL_TIME' ? (
+                    <>
+                      <input className="input input-sm preco" type="number" min={1} placeholder="Minutos" value={campo('minutos')} onChange={(e) => definir('minutos', e.target.value)} />
+                      <input className="input input-sm" style={{ width: 220 }} placeholder="Motivo (código do iFood)" value={campo('motivoTempo')} onChange={(e) => definir('motivoTempo', e.target.value)} />
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={ocupado || !campo('tipo')}
+                    onClick={() => executar('counterOffer', { tipo: campo('tipo'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo') })}
+                  >
+                    Enviar contraproposta
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -445,6 +470,12 @@ export function ModalPedido({
                         <strong>{formatarMoeda(p.totalReal)}</strong>
                       </td>
                     </tr>
+                    {p.extras.valores.map((v) => (
+                      <tr key={v.rotulo}>
+                        <td className="suave">{v.rotulo}</td>
+                        <td style={{ textAlign: 'right' }}>{formatarMoeda(v.valor)}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

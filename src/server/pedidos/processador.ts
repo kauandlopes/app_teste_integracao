@@ -190,7 +190,7 @@ export class ErroDeAcao extends Error {
   }
 }
 
-const RESPOSTAS_A_PENDENCIA = new Set(['acceptCancellation', 'denyCancellation', 'acceptRefund', 'denyRefund']);
+const RESPOSTAS_A_PENDENCIA = new Set(['acceptCancellation', 'denyCancellation', 'counterOffer', 'acceptRefund', 'denyRefund']);
 const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 /** Converte o que a tela informa para o formato que o Hub espera em cada plataforma. */
@@ -216,6 +216,18 @@ export function dadosDaAcao(p: RegistroPedido, acao: string, entrada: Record<str
       const motivo = texto(e.texto);
       if (pend.cancelamentoCliente) return { applyId: pend.cancelamentoCliente.applyId, ...(motivo ? { reason: motivo } : {}) };
       return { ...(pend.disputa ? { disputeId: pend.disputa.id } : {}), ...(motivo ? { detailReason: motivo } : {}) };
+    }
+    case 'counterOffer': {
+      if (!pend.disputa) throw new ErroDeAcao(409, 'Não há disputa aberta.');
+      const tipo = texto(e.tipo);
+      if (tipo === 'REFUND') {
+        const centavos = Math.round(Number(String(e.valor ?? '').replace(',', '.')) * 100);
+        if (!(centavos > 0)) throw new ErroDeAcao(400, 'Informe o valor do reembolso proposto.');
+        return { disputeId: pend.disputa.id, type: tipo, metadata: { amount: { value: String(centavos), currency: 'BRL' } } };
+      }
+      const minutos = Math.floor(Number(e.minutos));
+      if (tipo !== 'ADDITIONAL_TIME' || !(minutos > 0) || !texto(e.motivoTempo)) throw new ErroDeAcao(400, 'Informe os minutos e o motivo do tempo adicional.');
+      return { disputeId: pend.disputa.id, type: tipo, metadata: { additionalTimeInMinutes: minutos, additionalTimeReason: texto(e.motivoTempo) } };
     }
     case 'acceptRefund':
     case 'denyRefund': {
@@ -296,6 +308,7 @@ function aplicarAcao(p: RegistroPedido, acao: string, dados: Record<string, any>
         est.motivoCancelamento = motivo || 'Cancelamento do cliente aceito';
       }
       break;
+    case 'counterOffer':
     case 'denyCancellation':
       resolver(pend.cancelamentoCliente?.applyId ?? pend.disputa?.id);
       pend.cancelamentoCliente = null;

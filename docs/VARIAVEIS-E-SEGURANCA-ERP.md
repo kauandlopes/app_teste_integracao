@@ -87,38 +87,15 @@ Esta fronteira garante segurança multi-tenant, LGPD e isolamento entre os 60 cl
 
 ---
 
-## 3. Fluxo Operacional Completo Depois de Amarrado
+## 3. Fluxo Operacional Depois de Conectado
 
-Depois que a conexão (`hubp_` + CNPJ + `webhook.url` da máquina + vínculo da loja) está amarrada:
+- Chegada, eventos, ações, cancelamentos e disputas: [PEDIDOS.md](PEDIDOS.md).
+- Produto com adicionais e pizza, publicação nos dois canais: [CARDAPIO.md](CARDAPIO.md).
 
-1. **Chegada de Pedido (Webhook PUSH Instantâneo):**
-   - Cliente faz pedido no iFood ou 99Food -> Hub dispara `POST <webhook.url>` assinado com `X-Target-Assinatura: v1=<HMAC-SHA256>` (latência típica < 100 ms).
-   - O receptor do ERP valida a assinatura HMAC usando `webhookSegredo`, deduplica por `X-Target-Notificacao`, busca `GET /hub/v1/conexao/pedidos/:pedidoId?plataforma=...&formato=unificado` (se o payload não vier completo) e **grava no banco próprio do ERP** + atualiza a tela em tempo real.
-   - Se o endpoint do ERP estiver fora do ar (5xx/timeout), o Hub faz retry com backoff exponencial mantendo a ordem por pedido.
-
-2. **Ciclo Normal do Pedido no ERP:**
-   - **Aceitar:** `POST /hub/v1/conexao/pedidos/:id/acao` `{ "acao": "confirm" }`
-   - **Iniciar preparo:** `{ "acao": "startPreparation" }` *(no iFood envia à plataforma; na 99Food é aceito de forma idempotente)*
-   - **Pronto para retirada / coleta:** `{ "acao": "readyToPickup" }`
-   - **Despachar (com ou sem entregador):** `{ "acao": "dispatch", "dados": { "courierName": "João Silva", "courierPhone": "11999998888" } }`
-     - Na entrega própria da **99Food**, o Hub monta automaticamente `courier_info` + `limit_time` e chama `/v1/order/selfdelivery/dispatch`.
-   - **Alterar entregador em rota:** `{ "acao": "updateCourier", "dados": { "courierName": "Maria Souza", "courierPhone": "11988887777" } }` -> na 99Food chama `/v1/order/selfdelivery/updateCourierInfo`; no iFood atualiza localmente.
-   - **Validar código de entrega/coleta (quando exigido):** `{ "acao": "validatePickupCode", "dados": { "code": "1234" } }`
-   - **Concluir entrega:** `{ "acao": "conclude" }` *(na 99Food envia `/v1/order/order/delivered`; no iFood conclui no fluxo local após despacho)*.
-
-3. **Cancelamentos (Todos os 3 cenários funcionam):**
-   - **Cancelado pela plataforma/cliente direto (`CANCELLED` / `orderCancel`):** chega via Webhook PUSH instantâneo -> o ERP move o pedido para `CANCELADO` imediatamente e registra o motivo.
-   - **Solicitação de cancelamento / disputa pelo cliente (`CANCELLATION_REQUESTED`, `HANDSHAKE_DISPUTE`, `orderCancelApply`):** chega via Webhook PUSH -> o ERP exibe alerta para o atendente decidir:
-     - **Aceitar:** `{ "acao": "acceptCancellation", "dados": { "disputeId": "..." } }`
-     - **Recusar:** `{ "acao": "denyCancellation", "dados": { "disputeId": "...", "reason": "Pedido já saiu para entrega" } }`
-   - **Cancelado pelo ERP / Loja (`requestCancellation`):**
-     - ERP consulta `GET /hub/v1/conexao/pedidos/:id/subrecurso?tipo=motivos&plataforma=...` (retorna motivos reais tanto do iFood quanto da 99Food).
-     - ERP envia `POST /hub/v1/conexao/pedidos/:id/acao` `{ "acao": "requestCancellation", "dados": { "cancellationCode": "...", "reason": "..." } }` *(na 99Food, se o pedido ainda não havia sido confirmado, o Hub confirma antes automaticamente conforme exigência da plataforma)*.
-
-4. **Cardápio Completo (iFood + 99Food):**
-   - Sincronização inicial/manual: `GET /hub/v1/conexao/catalogo/unificado` traz todas as categorias, itens, grupos de modificadores, opções/adicionais e preços sempre em reais (`float`) tanto do iFood quanto da 99Food.
-   - Alteração de preço na 99Food preserva automaticamente `app_modifier_group_ids` (não desvincula adicionais).
-   - Alterações de status/preço de itens e opções funcionam nos dois canais pelo mesmo conjunto de rotas `/hub/v1/conexao/catalogo/*`.
+> Token da conexão: para gerar um novo, use `POST /hub/v1/conexoes/{conexaoId}/token` (token `hubp_`).
+> `POST /hub/v1/integracao/recuperar-token` aceita `{cnpj}` ou `{conexaoId}` e responde `409 CONEXAO_AMBIGUA` quando
+> há mais de uma conexão ativa e nenhuma é informada. `GET /hub/v1/integracao` lista todas em `conexoes`; o campo
+> `conexao` é a mais recente, então o ERP não deve adotá-la sem conferir o CNPJ.
 
 
 ---
@@ -132,7 +109,7 @@ Depois que a conexão (`hubp_` + CNPJ + `webhook.url` da máquina + vínculo da 
 - **Assinatura HMAC:** `HMAC_SHA256(webhookSegredo, "${timestamp}.${notificacaoId}.${rawBody}")`, validada obrigatoriamente em tempo constante (`crypto.timingSafeEqual`); ausente ou divergente deve retornar **HTTP 401**.
 
 ### B. Como o ERP puxa e processa pedidos (PUSH + Fallback Unificado)
-1. **Via Webhook PUSH (principal, instantâneo):** valida HMAC -> deduplica por `X-Target-Notificacao` -> se `body.pedido` já vier completo usa direto; se não vier, consulta `GET /hub/v1/conexao/pedidos/{pedidoId}?plataforma={canal}&formato=unificado` com `Bearer <tokenConexao_hubi>` -> grava no banco do ERP com proteção monotônica de status (nunca regredir `CONCLUIDO`/`CANCELADO`) -> responde **HTTP 200**.
+1. **Via Webhook PUSH (principal):** valida HMAC -> **grava o evento** (deduplicando por `X-Target-Evento`) -> responde **HTTP 200** -> processa em seguida, buscando `GET /hub/v1/conexao/pedidos/{pedidoId}?plataforma={canal}&formato=unificado` quando o pedido não vier no corpo, com nova tentativa em caso de falha.
 2. **Via Consulta / Reconciliação / Pedidos Target Delivery:**
    - `GET /hub/v1/conexao/pedidos?limite=30` (pedidos recebidos no Hub)
    - `GET /hub/v1/conexao/pedidos?incluirSistema=true&limite=30` (pedidos já salvos no Target Delivery no mesmo formato `PedidoUnificadoHub`)

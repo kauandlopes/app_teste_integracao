@@ -8,7 +8,7 @@ export function PainelDocumentacao({
   sessao: Sessao;
   notificar: (tipo: 'ok' | 'erro', msg: string) => void;
 }) {
-  const [subAba, setSubAba] = useState<'webhook' | 'pedidos' | 'generica' | 'variaveis'>('webhook');
+  const [subAba, setSubAba] = useState<'webhook' | 'pedidos' | 'cardapio' | 'generica' | 'variaveis'>('webhook');
 
   const baseUrl = sessao.baseUrl || 'https://delivery.targetx.com.br/api/v1';
   const rotaWebhookAppTeste = 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
@@ -50,17 +50,24 @@ export function PainelDocumentacao({
             </button>
             <button
               type="button"
+              className={`btn btn-sm${subAba === 'cardapio' ? ' btn-primary' : ''}`}
+              onClick={() => setSubAba('cardapio')}
+            >
+              3. Cardápio
+            </button>
+            <button
+              type="button"
               className={`btn btn-sm${subAba === 'generica' ? ' btn-primary' : ''}`}
               onClick={() => setSubAba('generica')}
             >
-              3. API Genérica (Futuras)
+              4. API Genérica (Futuras)
             </button>
             <button
               type="button"
               className={`btn btn-sm${subAba === 'variaveis' ? ' btn-primary' : ''}`}
               onClick={() => setSubAba('variaveis')}
             >
-              4. Variáveis e Segurança
+              5. Variáveis e Segurança
             </button>
           </div>
         </div>
@@ -168,8 +175,8 @@ const esperado = 'v1=' + crypto
               <code>POST /hub/v1/conexao/lojas</code>.
             </li>
             <li>
-              <strong>Recebe notificação instantânea no seu Webhook:</strong> valida <code>X-Target-Assinatura</code> com <code>webhookSegredo</code> e checa deduplicação usando{' '}
-              <code>X-Target-Notificacao</code>.
+              <strong>Recebe no seu Webhook:</strong> valida <code>X-Target-Assinatura</code> com <code>webhookSegredo</code>, <strong>grava o evento</strong> (deduplicando por{' '}
+              <code>X-Target-Evento</code>) e só então responde HTTP 200.
             </li>
             <li>
               <strong>Obtém o pedido completo normalizado:</strong> se <code>body.pedido</code> já vier no formato unificado (ex.: eventos enriquecidos/avaliação), usa direto; caso contrário
@@ -180,8 +187,8 @@ Authorization: Bearer {tokenConexao_hubi}`}
               </pre>
             </li>
             <li>
-              <strong>Grava no banco próprio do ERP e devolve HTTP 200:</strong> aplica proteção monotônica de etapa (evento antigo atrasado como <code>DISPATCHED</code> não rebaixa um
-              pedido já marcado como <code>CONCLUIDO</code> ou <code>CANCELADO</code>) e notifica a tela/cozinha em tempo real (SSE / WebSocket interno do ERP).
+              <strong>Processa a fila:</strong> aplica a etapa sem nunca voltar (evento atrasado não rebaixa o pedido; cancelado vence), avisa a tela na hora e, se a leitura do pedido
+              falhar, tenta de novo sem apagar o que já tem.
             </li>
             <li>
               <strong>Contingência / Reconciliação e Histórico Target Delivery:</strong> ao iniciar ou após queda de internet, o ERP pode puxar pedidos históricos/perdidos com:
@@ -212,6 +219,75 @@ GET ${baseUrl}/hub/v1/conexao/pedidos?incluirSistema=true    # pedidos já grava
   "solicitacaoCancelamento": { "pendente": true, "disputeId": "...", "motivo": "..." }
 }`}
           </pre>
+        </div>
+      ) : null}
+
+      {subAba === 'pedidos' ? (
+        <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
+          <table className="item-table">
+            <thead>
+              <tr>
+                <th>Modalidade</th>
+                <th>Ações iFood</th>
+                <th>Ações 99Food</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Entrega própria</td>
+                <td><code>confirm, startPreparation, readyToPickup, dispatch, conclude, updateCourier</code></td>
+                <td><code>confirm, readyToPickup, dispatch (com entregador), conclude, updateCourier</code></td>
+              </tr>
+              <tr>
+                <td>Entrega da plataforma</td>
+                <td><code>confirm, startPreparation, validatePickupCode</code></td>
+                <td><code>confirm, readyToPickup, payConfirm</code></td>
+              </tr>
+              <tr>
+                <td>Retirada ou mesa</td>
+                <td><code>confirm, startPreparation, readyToPickup, conclude</code></td>
+                <td><code>confirm, readyToPickup, pickedUp</code></td>
+              </tr>
+              <tr>
+                <td>Solicitações</td>
+                <td>Disputa: <code>acceptCancellation / denyCancellation</code> com <code>disputeId</code></td>
+                <td>Cancelamento: <code>applyId</code>. Reembolso: <code>acceptRefund / denyRefund</code></td>
+              </tr>
+              <tr>
+                <td>Cancelar pela loja</td>
+                <td><code>requestCancellation</code> com <code>cancellationCode</code>; aguarda a confirmação da plataforma</td>
+                <td><code>requestCancellation</code> com <code>reason_id</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {subAba === 'cardapio' ? (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>Um cadastro no ERP, publicado no iFood e na 99Food</h3>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.7 }}>
+            <li>Criar ou editar: <code>POST /hub/v1/conexao/catalogo/produtos</code> com a definição completa (adicionais e pizza), um produto por vez.</li>
+            <li>Preço e pausa: <code>PATCH .../produtos/:codigo</code> e <code>.../opcoes/:opcao</code>. Preço de pizza republica o produto.</li>
+            <li>Envie sempre <code>codigo</code> em tudo, <code>disponivel</code> e a lista completa de <code>grupos</code>.</li>
+            <li>A 99Food responde <code>PROCESSANDO</code>: consulte <code>GET .../produtos/:codigo</code> até mudar.</li>
+            <li>Falha temporária (limite de frequência, 5xx) volta para a fila; recusa definitiva aparece no produto com a mensagem da plataforma.</li>
+          </ol>
+          <pre style={{ margin: 0, padding: 12, borderRadius: 6, border: '1px solid var(--border)', overflowX: 'auto', fontSize: 12 }}>
+{`{
+  "codigo": "PIZZA", "nome": "Pizza", "categoria": "Pizzas", "tipo": "PIZZA", "disponivel": true,
+  "pizza": {
+    "tamanhos": [{ "codigo": "G", "nome": "Grande", "preco": 60, "pedacos": 8, "maxSabores": 2 }],
+    "sabores":  [{ "codigo": "CAL", "nome": "Calabresa", "acrescimo": 0 }],
+    "massas":   [{ "codigo": "TRAD", "nome": "Tradicional", "preco": 0 }],
+    "bordas":   [{ "codigo": "CAT", "nome": "Catupiry", "preco": 8 }],
+    "bordaObrigatoria": false
+  },
+  "grupos": [{ "codigo": "BEB", "nome": "Bebida", "min": 0, "max": 1,
+    "opcoes": [{ "codigo": "COCA", "nome": "Coca-Cola", "preco": 8, "disponivel": true }] }]
+}`}
+          </pre>
+          <p className="suave" style={{ margin: 0 }}>Na 99Food a publicação reenvia o cardápio inteiro da loja: teste publicação apenas em loja de teste.</p>
         </div>
       ) : null}
 

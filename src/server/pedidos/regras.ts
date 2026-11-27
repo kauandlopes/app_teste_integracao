@@ -39,8 +39,8 @@ export function acoesDisponiveis(p: SituacaoPedido): AcaoDisponivel[] {
   if (p.plataforma === 'IFOOD') {
     if (s === 'PREPARO') {
       if (!p.preparoIniciado) add('startPreparation', 'Iniciar preparo', daPlataforma ? 'principal' : 'secundaria');
-      // Na entrega do iFood o pedido avanca pelos eventos do entregador
-      if (!daPlataforma) add('readyToPickup', 'Marcar pronto', 'principal');
+      // Na entrega do iFood o pedido avança pelos eventos do entregador; avisar que está pronto é opcional
+      add('readyToPickup', 'Marcar pronto', daPlataforma ? 'secundaria' : 'principal');
       if (propria) add('dispatch', 'Despachar agora', 'secundaria', 'entregadorOpcional');
     }
     if (s === 'PRONTO') {
@@ -51,7 +51,7 @@ export function acoesDisponiveis(p: SituacaoPedido): AcaoDisponivel[] {
       add('conclude', 'Concluir entrega', 'principal');
       add('updateCourier', 'Trocar entregador', 'secundaria', 'entregador');
     }
-    if (daPlataforma && s !== 'NOVO') add('validatePickupCode', 'Validar código de coleta', 'avancada', 'codigo');
+    if ((daPlataforma && s !== 'NOVO') || (noLocal && s === 'PRONTO')) add('validatePickupCode', 'Validar código de coleta', 'avancada', 'codigo');
     if (propria && s !== 'NOVO') {
       add('assignDriver', 'Informar entregador ao iFood', 'avancada', 'logistica');
       add('goingToOrigin', 'Entregador a caminho da loja', 'avancada');
@@ -76,6 +76,7 @@ export function acoesDisponiveis(p: SituacaoPedido): AcaoDisponivel[] {
       add('conclude', 'Concluir entrega', 'principal');
       add('updateCourier', 'Trocar entregador', 'secundaria', 'entregador');
     }
+    if (noLocal && s === 'PRONTO') add('validatePickupCode', 'Validar código de retirada', 'avancada', 'codigo');
     if (propria && (s === 'PRONTO' || s === 'ENTREGA')) add('validatePickupCode', 'Validar código do cliente', 'avancada', 'codigo');
     if (daPlataforma && p.pagamentoNaEntrega && s !== 'NOVO') add('payConfirm', 'Confirmar dinheiro recebido', 'secundaria');
   }
