@@ -4,10 +4,9 @@ import { db, gravarAjuste, obterConfig } from '../db.js';
 import { hubFetch, mensagemDoHub, registrarLog } from '../hubClient.js';
 import { notificar } from '../stream.js';
 import type { MotivoCancelamento, StatusKanban } from '../../shared/tipos.js';
-import { detalheValido, modalidadeDe } from './detalhe.js';
 import { aceiteAutomaticoLigado, contarFila, ErroDeAcao, executarAcao, processarFila, puxarEventos, receberEvento, reconciliar, reprocessarFalhas } from './processador.js';
 import { ehSimulado } from './regras.js';
-import { listarPedidos, mesclarDetalhe, obterPedido, pedidoNovo, salvarPedido } from './repositorio.js';
+import { listarPedidos, obterPedido, salvarPedido } from './repositorio.js';
 
 /** Motivos da 99Food que a plataforma so aceita quando a entrega e da propria loja. */
 const SO_ENTREGA_PROPRIA_99 = new Set(['1060', '1071', '1072']);
@@ -73,27 +72,6 @@ export function rotasPedidos(): Router {
     const reconciliados = await reconciliar();
     await processarFila();
     res.json({ ok: true, novosEventos: puxados + reconciliados, fila: contarFila() });
-  });
-
-  /** Pedidos que o proprio Target Delivery ja tem gravados (somente leitura no ERP). */
-  api.post('/pedidos/importar-sistema', async (_req, res) => {
-    const r = await hubFetch<any[]>('/hub/v1/conexao/pedidos?incluirSistema=true&limite=30');
-    if (!r.ok) return res.status(r.status || 502).json({ erro: mensagemDoHub(r) });
-    let importados = 0;
-    for (const d of Array.isArray(r.json) ? r.json : []) {
-      if (!d?.id || !detalheValido(d)) continue;
-      const existente = obterPedido(String(d.id));
-      // Pedido que ja chegou por evento continua operavel e nao e sobrescrito pela copia do Delivery
-      if (existente && !existente.estado.somenteLeitura) continue;
-      const p = existente ?? pedidoNovo(String(d.id), d.canal ?? 'TD', d.criadoEm ?? new Date().toISOString());
-      p.estado.somenteLeitura = true;
-      mesclarDetalhe(p, d);
-      p.modalidade = modalidadeDe(d);
-      salvarPedido(p);
-      importados += 1;
-    }
-    notificar('pedidos', { importados });
-    res.json({ ok: true, importados });
   });
 
   /** Pedido de avaliacao: percorre o fluxo real do Hub (fila, PUSH ou PULL, webhook) sem tocar nas plataformas. */

@@ -130,5 +130,4 @@ etapa atual gravada, seguindo a mesma matriz.
 - O Hub arredonda inteiros de 64 bits no detalhe da 99Food; o ERP usa o id que veio no evento. Linhas com `mdu_id`
   arredondado não aparecem em "item em falta".
 - No iFood a conclusão é feita pela plataforma; "Concluir" fecha o pedido apenas no ERP.
-- Pedidos importados do Delivery são somente leitura.
 - A contraproposta ainda não foi validada em homologação: o Hub não envia o id da alternativa escolhida.

@@ -297,12 +297,7 @@ test('responder uma disputa nao apaga a que chegou durante a chamada', async () 
   assert.equal((await acao('p17', 'denyCancellation', { idPendencia: 'd1' })).status, 409);
 });
 
-test('pedido importado do Delivery e somente leitura; agendamento recusado nao se repete', async () => {
-  a.quando('GET', /\/conexao\/pedidos$/, () => ({ json: [pedidoUnificado('td-1')] }));
-  await a.erp('POST', '/pedidos/importar-sistema');
-  assert.deepEqual((await obter('td-1')).acoes, []);
-  assert.equal((await acao('td-1', 'confirm')).status, 409);
-
+test('agendamento recusado nao se repete', async () => {
   a.limpar();
   detalhe({ bruto: { orderTiming: 'SCHEDULED', preparationStartDateTime: new Date(Date.now() - 1000).toISOString() } });
   await chegar('p18', 'CONFIRMED', 'CFM');

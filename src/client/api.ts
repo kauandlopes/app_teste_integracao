@@ -120,7 +120,6 @@ export const erpApi = {
   listarPedidos: () => req<{ pedidos: PedidoErp[]; aceiteAutomatico: boolean; fila: Fila }>('/pedidos'),
   definirAceiteAutomatico: (ligado: boolean) => req('/ajustes', 'PUT', { aceiteAutomatico: ligado }),
   sincronizarPedidos: () => req<{ ok: boolean; novosEventos: number }>('/pedidos/sincronizar', 'POST'),
-  importarSistema: () => req<{ importados: number }>('/pedidos/importar-sistema', 'POST'),
   avaliarPedido: (plataforma?: 'IFOOD' | '99FOOD', cenario?: 'normal' | 'solicitacao_cancelamento' | 'cancelado') =>
     req<{ pedidoId: string; pedido: any }>('/pedidos/avaliar', 'POST', { plataforma, cenario }),
   criarPedidoTeste: () => req('/pedidos/teste', 'POST'),

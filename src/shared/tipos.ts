@@ -116,8 +116,6 @@ export interface PedidoErp {
   modalidade: Modalidade;
   detalhePendente: boolean;
   simulado: boolean;
-  /** Pedido importado do Delivery: sem acoes pelo ERP. */
-  somenteLeitura: boolean;
   itens: ItemPedido[];
   /** Pedido unificado do Hub (com o bruto da plataforma dentro). */
   detalhe: any;

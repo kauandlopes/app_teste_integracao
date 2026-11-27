@@ -141,7 +141,6 @@ export function ModalPedido({
             <span className={p.statusKanban === 'CANCELADO' ? 'pill pill-err' : 'pill pill-info'}>{ROTULO_ETAPA[p.statusKanban]}</span>
             <span className="pill">{ROTULO_MODALIDADE[p.modalidade]}</span>
             {p.simulado ? <span className="pill pill-warn">Simulado</span> : null}
-            {p.somenteLeitura ? <span className="pill">Somente leitura</span> : null}
             {p.extras.pedidoTeste ? <span className="pill pill-warn">Teste da plataforma</span> : null}
           </div>
           <div className="linha">

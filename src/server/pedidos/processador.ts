@@ -340,7 +340,6 @@ export async function executarAcao(pedidoId: string, acao: string, entrada: Reco
   const p = obterPedido(pedidoId);
   if (!p) throw new ErroDeAcao(404, 'Pedido não encontrado.');
   const tela = paraTela(p);
-  if (p.estado.somenteLeitura) throw new ErroDeAcao(409, 'Pedido do Delivery: opere pelo painel do Delivery.');
   const pendente =
     RESPOSTAS_A_PENDENCIA.has(acao) && (acao.endsWith('Refund') ? !!p.estado.pendencias.reembolso : !!(p.estado.pendencias.disputa || p.estado.pendencias.cancelamentoCliente));
   if (!pendente && !tela.acoes.some((a) => a.acao === acao)) throw new ErroDeAcao(409, 'Esta ação não vale para a etapa atual do pedido. Atualize a tela.');
@@ -415,7 +414,7 @@ export async function iniciarAgendados() {
   for (const { id } of linhas) {
     const p = obterPedido(id)!;
     const inicio = extrasDe(p.plataforma, p.detalhe).agendamento?.inicioPreparo;
-    if (!inicio || p.estado.preparoIniciado || p.estado.agendamentoRecusado || p.estado.somenteLeitura || new Date(inicio).getTime() > Date.now()) continue;
+    if (!inicio || p.estado.preparoIniciado || p.estado.agendamentoRecusado || new Date(inicio).getTime() > Date.now()) continue;
     await executarAcao(id, 'startPreparation').catch((err) => {
       // Recusa definitiva nao se repete a cada ciclo
       if (err instanceof ErroDeAcao && err.status < 500) {

@@ -112,7 +112,6 @@ Esta fronteira garante segurança multi-tenant, LGPD e isolamento entre os 60 cl
 1. **Via Webhook PUSH (principal):** valida HMAC -> **grava o evento** (deduplicando por `X-Target-Evento`) -> responde **HTTP 200** -> processa em seguida, buscando `GET /hub/v1/conexao/pedidos/{pedidoId}?plataforma={canal}&formato=unificado` quando o pedido não vier no corpo, com nova tentativa em caso de falha.
 2. **Via Consulta / Reconciliação / Pedidos Target Delivery:**
    - `GET /hub/v1/conexao/pedidos?limite=30` (pedidos recebidos no Hub)
-   - `GET /hub/v1/conexao/pedidos?incluirSistema=true&limite=30` (pedidos já salvos no Target Delivery no mesmo formato `PedidoUnificadoHub`)
    - Se `PULL` estiver ligado em máquina sem túnel: `GET /hub/v1/eventos?espera=25&limite=50` + `POST /hub/v1/eventos/confirmar` `{ "ate": maxSeq }`.
 
 ### C. Contrato Genérico para TODAS as Integrações (iFood, 99Food e futuras plataformas)

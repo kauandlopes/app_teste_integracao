@@ -191,10 +191,9 @@ Authorization: Bearer {tokenConexao_hubi}`}
               falhar, tenta de novo sem apagar o que já tem.
             </li>
             <li>
-              <strong>Contingência / Reconciliação e Histórico Target Delivery:</strong> ao iniciar ou após queda de internet, o ERP pode puxar pedidos históricos/perdidos com:
+              <strong>Contingência e reconciliação:</strong> ao iniciar ou após queda de internet, o ERP pode puxar pedidos históricos/perdidos com:
               <pre style={{ margin: '6px 0', padding: 10, borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, overflowX: 'auto' }}>
-{`GET ${baseUrl}/hub/v1/conexao/pedidos?limite=30              # pedidos recebidos via Hub
-GET ${baseUrl}/hub/v1/conexao/pedidos?incluirSistema=true    # pedidos já gravados no Target Delivery`}
+{`GET ${baseUrl}/hub/v1/conexao/pedidos?limite=30    # pedidos recebidos via Hub e seus eventos`}
               </pre>
             </li>
           </ol>

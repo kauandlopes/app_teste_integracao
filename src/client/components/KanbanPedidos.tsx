@@ -43,7 +43,7 @@ export function KanbanPedidos({
   aoAbrirLogs: () => void;
 }) {
   const [busca, setBusca] = useState('');
-  const [canal, setCanal] = useState<'TODOS' | 'IFOOD' | '99FOOD' | 'TD'>('TODOS');
+  const [canal, setCanal] = useState<'TODOS' | 'IFOOD' | '99FOOD'>('TODOS');
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aberto, setAberto] = useState<{ id: string; acao: AcaoDisponivel | null } | null>(null);
 
@@ -87,7 +87,7 @@ export function KanbanPedidos({
       <div className="toolbar">
         <div className="toolbar-group">
           <input type="search" className="input input-sm" style={{ width: 230 }} placeholder="Buscar pedido, cliente ou endereço" value={busca} onChange={(e) => setBusca(e.target.value)} />
-          {(['TODOS', 'IFOOD', '99FOOD', 'TD'] as const).map((c) => (
+          {(['TODOS', 'IFOOD', '99FOOD'] as const).map((c) => (
             <button key={c} type="button" className={`btn btn-sm ${canal === c ? 'btn-primary' : ''}`} onClick={() => setCanal(c)}>
               {c === 'TODOS' ? 'Todos' : nomeCanal(c)}
             </button>
@@ -142,13 +142,8 @@ export function KanbanPedidos({
                   }),
               },
               {
-                rotulo: 'Importar pedidos do Delivery',
-                separadorAntes: true,
-                aoClicar: () =>
-                  void executar('importar', async () => `${(await erpApi.importarSistema()).importados} pedido(s) importado(s).`),
-              },
-              {
                 rotulo: 'Apagar pedidos simulados',
+                separadorAntes: true,
                 perigo: true,
                 aoClicar: () => void executar('limpar', async () => `${(await erpApi.limparSimulacoes()).removidos} simulado(s) apagado(s).`),
               },
