@@ -21,7 +21,7 @@ export function criarApp() {
   );
 
   const api = Router();
-  const webhookPublicoPadrao = process.env.PUBLIC_WEBHOOK_URL || 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
+  const webhookPublicoPadrao = 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
   const clientesSse = new Set<Response>();
   const notificacoesVistas = new Set<string>();
 
