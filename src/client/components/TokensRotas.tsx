@@ -59,6 +59,17 @@ const ROTAS: Array<{ grupo: string; rotas: Rota[] }> = [
       ['GET', '/hub/v1/conexao/catalogo/nao-vendaveis?plataforma=IFOOD', 'conexao', 'Itens que não podem vender'],
     ],
   },
+  {
+    grupo: 'Loja & Horários',
+    rotas: [
+      ['GET', '/hub/v1/conexao/loja/status', 'conexao', 'Status atual da loja (iFood e 99Food)'],
+      ['POST', '/hub/v1/conexao/loja/status?plataforma=99FOOD', 'conexao', 'Abre ou fecha loja na 99Food', '{"aberta":true}'],
+      ['POST', '/hub/v1/conexao/loja/interrupcoes', 'conexao', 'Cria pausa programada no iFood', '{"description":"Pausa","durationMinutes":30}'],
+      ['DELETE', '/hub/v1/conexao/loja/interrupcoes/{id}', 'conexao', 'Remove pausa no iFood'],
+      ['GET', '/hub/v1/conexao/loja/horarios', 'conexao', 'Consulta horários de funcionamento (iFood)'],
+      ['PUT', '/hub/v1/conexao/loja/horarios', 'conexao', 'Atualiza horários de funcionamento (iFood)', '{"shifts":[{"dayOfWeek":"MONDAY","start":"08:00:00","duration":600}]}'],
+    ],
+  },
 ];
 
 export function TokensRotas({ notificar }: { notificar: (tipo: 'ok' | 'erro', msg: string) => void }) {
