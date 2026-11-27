@@ -140,7 +140,7 @@ export function normalizarProduto(entrada: any): ProdutoErp {
   if (tipo === 'PIZZA') {
     // O preco da pizza (e o preco por plataforma) vem dos tamanhos
     const p = pizza(entrada.pizza);
-    return { ...base, preco: Math.min(...p.tamanhos.map((t) => t.preco)), pizza: p };
+    return { ...base, preco: Math.min(...p.tamanhos.map((t) => t.preco)), pizza: p, ...(entrada.formatoIfood === 'PIZZA' ? { formatoIfood: 'PIZZA' as const } : {}) };
   }
   const valor = preco(entrada?.preco, titulo);
   if (tipo === 'COMBO' && !listaGrupos.length) falha('Combo: cadastre pelo menos uma etapa (grupo) com opções.');

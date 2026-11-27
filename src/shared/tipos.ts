@@ -213,6 +213,8 @@ export interface ProdutoErp {
   foto: string;
   grupos: GrupoProduto[];
   pizza: PizzaProduto | null;
+  /** So para pizza. Ausente = item na categoria com grupos de escolha (padrao do Hub). PIZZA = nativa do iFood, em secao propria. */
+  formatoIfood?: 'PIZZA';
 }
 
 export type EstadoCanal = 'PUBLICADO' | 'PROCESSANDO' | 'REMOVIDO' | 'ERRO' | 'SEM_LOJA';

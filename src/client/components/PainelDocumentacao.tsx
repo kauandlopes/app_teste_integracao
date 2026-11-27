@@ -291,6 +291,9 @@ Authorization: Bearer {tokenConexao_hubi}`}
             <code>IFOOD</code>, <code>99FOOD</code>, <code>AIQFOME</code>, <code>KEETA</code>) em produto, adicional, tamanho, sabor, massa ou borda.
           </p>
           <p style={{ margin: 0, fontSize: 13 }}>
+            <strong>Pizza no iFood:</strong> por padrão entra como item na categoria enviada; <code>formatoIfood: "PIZZA"</code> publica a pizza nativa em seção própria.
+          </p>
+          <p style={{ margin: 0, fontSize: 13 }}>
             <strong>Combo:</strong> <code>tipo: "COMBO"</code>, preço no produto e um grupo por etapa (o primeiro é o principal).
           </p>
           <p className="suave" style={{ margin: 0 }}>Na 99Food a publicação reenvia o cardápio inteiro da loja: teste publicação apenas em loja de teste.</p>

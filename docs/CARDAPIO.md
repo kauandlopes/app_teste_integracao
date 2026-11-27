@@ -71,8 +71,12 @@ Cuidados (aplicados pelo ERP):
 - `grupos` vai sempre completo: omitido, o Hub remove os grupos.
 - Foto: JPG ou PNG, mínimo de 150 px; a tela reduz para menos de 700 KB (corpo do Hub até 1 MB). Sem foto, a atual
   é mantida na plataforma.
-- A categoria é casada pelo nome e criada se não existir. No iFood cada pizza ganha uma seção própria com o nome do
-  produto (a categoria informada vale na 99Food).
+- A categoria é casada pelo nome e criada se não existir. Só a pizza nativa do iFood ignora a categoria e ganha uma
+  seção com o nome do produto.
+- Acréscimo de sabor diferente por tamanho publica um item por tamanho na 99Food e no iFood em itens. Com mais de um
+  sabor, os acréscimos são somados.
+- Reenviar uma pizza publicada como nativa exclui a antiga e publica no formato atual; uma seção que sobrar vazia só
+  sai pelo portal do iFood.
 - O iFood demora alguns segundos para refletir uma leitura depois de uma escrita.
 
 Combo (cada grupo é uma etapa de escolha; o primeiro é o principal; preço no produto):
@@ -113,7 +117,7 @@ as chaves preenchidas:
 | Assunto | iFood | 99Food |
 |---|---|---|
 | Publicação | Imediata | Assíncrona (`PROCESSANDO`), reenvia o **cardápio inteiro** da loja |
-| Pizza | Tipo nativo com tamanhos, massas, bordas e frações | Não é nativa: um item com grupo de tamanho. Acréscimo de sabor diferente por tamanho gera um item por tamanho |
+| Pizza | Padrão: item na categoria com grupos (tamanho, massa, borda, sabores). Opcional `formatoIfood: "PIZZA"`: pizza nativa em seção própria | Não é nativa: um item com grupo de tamanho |
 | Frequência | Limite geral do Hub | Leitura e envio do cardápio: 1 por minuto |
 | Pausar categoria | Sim | Não (pause os itens) |
 

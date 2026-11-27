@@ -253,3 +253,13 @@ test('combo vai com as etapas e exige pelo menos uma', async () => {
   assert.equal(enviado.tipo, 'COMBO');
   assert.deepEqual(enviado.precosPlataforma, { IFOOD: 33 });
 });
+
+test('formato da pizza no iFood so e enviado quando for a nativa', async () => {
+  publicado();
+  await a.erp('PUT', '/catalogo/produtos', { ...pizza, codigo: 'F1' });
+  await esperar();
+  await a.erp('PUT', '/catalogo/produtos', { ...pizza, codigo: 'F2', formatoIfood: 'PIZZA' });
+  await esperar();
+  const enviados = a.chamadasDe('POST', /catalogo\/produtos$/).map((c) => [c.corpo.codigo, c.corpo.formatoIfood]);
+  assert.deepEqual(enviados, [['F1', undefined], ['F2', 'PIZZA']]);
+});

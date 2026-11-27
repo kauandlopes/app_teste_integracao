@@ -60,6 +60,7 @@ interface Form {
   bordas: Opcao[];
   bordaObrigatoria: boolean;
   precoPorTamanho: boolean;
+  pizzaNativa: boolean;
 }
 
 const aleatorio = () => Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -98,6 +99,7 @@ function paraForm(p: ProdutoErp | null, tipo: ProdutoErp['tipo']): Form {
       bordas: [],
       bordaObrigatoria: false,
       precoPorTamanho: false,
+      pizzaNativa: false,
     };
   }
   return {
@@ -126,6 +128,7 @@ function paraForm(p: ProdutoErp | null, tipo: ProdutoErp['tipo']): Form {
     bordas: p.pizza?.bordas.map(complemento) ?? [],
     bordaObrigatoria: p.pizza?.bordaObrigatoria ?? false,
     precoPorTamanho: !!p.pizza?.sabores.some((s) => s.acrescimoPorTamanho && Object.keys(s.acrescimoPorTamanho).length),
+    pizzaNativa: p.formatoIfood === 'PIZZA',
   };
 }
 
@@ -142,6 +145,7 @@ function paraProduto(f: Form) {
     ...(f.tipo === 'PIZZA' ? {} : precos(f.precos)),
     disponivel: f.disponivel,
     foto: f.foto,
+    ...(f.tipo === 'PIZZA' && f.pizzaNativa ? { formatoIfood: 'PIZZA' as const } : {}),
     grupos: f.grupos.map((g) => ({ codigo: g.codigo, nome: g.nome, min: Number(g.min), max: Number(g.max), opcoes: g.opcoes.map(opcao) })),
     pizza:
       f.tipo === 'PIZZA'
@@ -356,6 +360,13 @@ export function EditorProduto({
 
           {ehPizza ? (
             <>
+              <label className="chave" style={{ alignSelf: 'flex-start' }}>
+                <input type="checkbox" checked={f.pizzaNativa} onChange={(e) => mudar({ pizzaNativa: e.target.checked })} />
+                No iFood, usar a pizza nativa (cria uma seção própria)
+              </label>
+              <p className="suave" style={{ margin: 0 }}>
+                Desmarcado, a pizza entra na categoria informada como um item com grupos de tamanho, massa, borda e sabores.
+              </p>
               <section className="secao">
                 <h3>Tamanhos</h3>
                 <p className="suave">O preço do tamanho é o preço final da pizza. Sabores, massas e bordas somam a ele.</p>
@@ -409,7 +420,7 @@ export function EditorProduto({
                   </label>
                 </div>
                 {f.precoPorTamanho ? (
-                  <div className="banner banner-warn">Na 99Food, acréscimos diferentes por tamanho publicam um item separado para cada tamanho. Com o mesmo acréscimo em todos, sai um item só.</div>
+                  <div className="banner banner-warn">Acréscimos diferentes por tamanho publicam um item para cada tamanho (99Food e iFood em itens). Com o mesmo acréscimo em todos, sai um item só. Com mais de um sabor, os acréscimos são somados.</div>
                 ) : null}
                 {f.sabores.map((s, i) => (
                   <div className="pilha" key={i}>
