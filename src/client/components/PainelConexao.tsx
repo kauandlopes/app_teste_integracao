@@ -20,18 +20,33 @@ export function PainelConexao({
 }) {
   const [cnpj, setCnpj] = useState(sessao.cnpj || '');
   const [nome, setNome] = useState(sessao.nomeLoja || '');
-  const [transporte, setTransporte] = useState<'PULL' | 'PUSH'>(sessao.transporte === 'PUSH' ? 'PUSH' : 'PULL');
-  const [webhookUrl, setWebhookUrl] = useState('');
+  const [transporte, setTransporte] = useState<'PULL' | 'PUSH'>(sessao.transporte === 'PULL' ? 'PULL' : 'PUSH');
+  const [webhookUrl, setWebhookUrl] = useState(sessao.webhookUrl || 'https://delivery.targetx.com.br/erp-simulador/api/webhook');
   const [salvandoCnpj, setSalvandoCnpj] = useState(false);
 
   const [livresIfood, setLivresIfood] = useState<any[]>([]);
   const [livres99, setLivres99] = useState<any[]>([]);
   const [buscandoLivres, setBuscandoLivres] = useState(false);
   const [ocupadoLoja, setOcupadoLoja] = useState<string | null>(null);
+  const [entregas, setEntregas] = useState<any[]>([]);
+  const [carregandoEntregas, setCarregandoEntregas] = useState(false);
 
   const [pausaDesc, setPausaDesc] = useState('Pausa operacional');
   const [pausaMin, setPausaMin] = useState(30);
   const [mostrarDetalhesTecnicos, setMostrarDetalhesTecnicos] = useState(false);
+
+  async function carregarEntregas() {
+    if (!sessao.cnpj || !sessao.temTokenConexao) return;
+    setCarregandoEntregas(true);
+    try {
+      const lista = await erpApi.listarEntregas();
+      setEntregas(Array.isArray(lista) ? lista.slice(0, 15) : []);
+    } catch {
+      // ignora se conexao ainda nao estiver pronta
+    } finally {
+      setCarregandoEntregas(false);
+    }
+  }
 
   async function carregarLivres() {
     if (!sessao.cnpj || !sessao.temTokenConexao) return;
@@ -50,9 +65,13 @@ export function PainelConexao({
   useEffect(() => {
     setCnpj(sessao.cnpj || '');
     setNome(sessao.nomeLoja || '');
-    setTransporte(sessao.transporte === 'PUSH' ? 'PUSH' : 'PULL');
-    if (sessao.cnpj) void carregarLivres();
-  }, [sessao.cnpj, sessao.nomeLoja, sessao.transporte]);
+    setTransporte(sessao.transporte === 'PULL' ? 'PULL' : 'PUSH');
+    if (sessao.webhookUrl) setWebhookUrl(sessao.webhookUrl);
+    if (sessao.cnpj) {
+      void carregarLivres();
+      void carregarEntregas();
+    }
+  }, [sessao.cnpj, sessao.nomeLoja, sessao.transporte, sessao.webhookUrl]);
 
   async function conectarCnpj(e: React.FormEvent) {
     e.preventDefault();
@@ -64,9 +83,10 @@ export function PainelConexao({
         transporte,
         ...(transporte === 'PUSH' && webhookUrl ? { webhookUrl } : {}),
       });
-      notificar('ok', 'Empresa vinculada à conexão 1:1 com sucesso.');
+      notificar('ok', `Empresa conectada via ${transporte} e lojas verificadas.`);
       await aoAtualizarSessao();
       await carregarLivres();
+      await carregarEntregas();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao conectar CNPJ.');
     } finally {
@@ -174,14 +194,14 @@ export function PainelConexao({
           <div className="field">
             <label className="field-label">Recebimento de pedidos</label>
             <select className="select" value={transporte} onChange={(e) => setTransporte(e.target.value as 'PULL' | 'PUSH')}>
-              <option value="PULL">PULL automático (sem URL pública)</option>
-              <option value="PUSH">PUSH via Webhook HTTPS</option>
+              <option value="PUSH">PUSH via Webhook Instantâneo (Recomendado)</option>
+              <option value="PULL">PULL automático (Long-poll legado)</option>
             </select>
           </div>
           {transporte === 'PUSH' ? (
             <div className="field">
-              <label className="field-label">URL do Webhook receptor</label>
-              <input className="input" placeholder="https://..." value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
+              <label className="field-label">URL do Webhook receptor (Túnel)</label>
+              <input className="input" placeholder="https://delivery.targetx.com.br/erp-simulador/api/webhook" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
             </div>
           ) : null}
           <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
@@ -356,6 +376,89 @@ export function PainelConexao({
             ))}
           </div>
         ) : null}
+      </div>
+
+      {/* Passo 4: Fila PUSH Instantânea & Diagnóstico */}
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 16 }}>4. Webhook PUSH Instantâneo & Entregas</h2>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Transporte: <strong>{sessao.transporte || 'PULL'}</strong> · Assinatura HMAC: {sessao.temWebhookSegredo ? 'Ativa' : 'Sem segredo local'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={async () => {
+                try {
+                  const r = await erpApi.avaliarPedido();
+                  notificar('ok', `Pedido ${r.pedido?.codigoExibicao || r.pedidoId} disparado via Webhook PUSH.`);
+                  setTimeout(() => void carregarEntregas(), 400);
+                } catch (err) {
+                  notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao disparar avaliação.');
+                }
+              }}
+              disabled={!sessao.cnpj}
+            >
+              Testar Webhook (Pedido Completo)
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={async () => {
+                await erpApi.reativarPush().catch(() => undefined);
+                const r = await erpApi.reprocessarEntregas().catch(() => ({ reprocessadas: 0 }));
+                notificar('ok', `PUSH reativado. Reprocessadas: ${r.reprocessadas}.`);
+                await carregarEntregas();
+              }}
+              disabled={!sessao.cnpj}
+            >
+              Reativar / Reprocessar PUSH
+            </button>
+            <button type="button" className="btn btn-sm" onClick={carregarEntregas} disabled={carregandoEntregas || !sessao.cnpj}>
+              <IconeAtualizar size={14} /> {carregandoEntregas ? 'Carregando...' : 'Atualizar'}
+            </button>
+          </div>
+        </div>
+
+        {entregas.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhuma entrega PUSH registrada ainda nesta conexão.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="item-table">
+              <thead>
+                <tr>
+                  <th>Seq</th>
+                  <th>Canal / Tipo</th>
+                  <th>Pedido</th>
+                  <th>Estado</th>
+                  <th>HTTP / Tentativas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entregas.map((en: any) => (
+                  <tr key={en.notificacaoId || en.evento}>
+                    <td>#{en.seq}</td>
+                    <td>
+                      <span className="pill">{en.plataforma}</span> {en.tipo}
+                    </td>
+                    <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{en.pedido || '-'}</td>
+                    <td>
+                      <span className={`pill ${en.estado === 'DELIVERED' ? 'pill-ok' : en.estado === 'DEAD' ? 'pill-err' : 'pill-warn'}`}>
+                        {en.estado}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      HTTP {en.ultimoStatus ?? '-'} · {en.tentativas}x {en.ultimoErro ? `(${en.ultimoErro})` : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

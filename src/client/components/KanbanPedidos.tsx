@@ -23,7 +23,7 @@ export function KanbanPedidos({
   aoAbrirLogs: () => void;
 }) {
   const [busca, setBusca] = useState('');
-  const [filtroPlat, setFiltroPlat] = useState<'TODAS' | 'IFOOD' | '99FOOD'>('TODAS');
+  const [filtroPlat, setFiltroPlat] = useState<'TODAS' | 'IFOOD' | '99FOOD' | 'TD'>('TODAS');
   const [ocupadoId, setOcupadoId] = useState<string | null>(null);
   const [criandoTeste, setCriandoTeste] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
@@ -117,11 +117,16 @@ export function KanbanPedidos({
   async function criarTeste(criarCard: boolean) {
     setCriandoTeste(true);
     try {
-      await erpApi.criarPedidoTeste(criarCard);
-      notificar('ok', criarCard ? 'Pedido de simulação criado no Kanban e enviado ao Hub.' : 'Evento de teste disparado para fila PULL do Hub.');
+      if (criarCard) {
+        const r = await erpApi.avaliarPedido();
+        notificar('ok', `Pedido ${r.pedido?.codigoExibicao || ''} enviado pelo fluxo real (Hub PUSH -> Kanban).`);
+      } else {
+        await erpApi.criarPedidoTeste(false);
+        notificar('ok', 'Evento PING HUB_TESTE disparado para o Hub.');
+      }
       await aoRecarregar(false);
     } catch (err) {
-      notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao gerar pedido teste.');
+      notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao gerar pedido de avaliação.');
     } finally {
       setCriandoTeste(false);
     }
@@ -170,14 +175,14 @@ export function KanbanPedidos({
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
-          {(['TODAS', 'IFOOD', '99FOOD'] as const).map((pl) => (
+          {(['TODAS', 'IFOOD', '99FOOD', 'TD'] as const).map((pl) => (
             <button
               key={pl}
               type="button"
               className={`btn btn-sm ${filtroPlat === pl ? 'btn-primary' : ''}`}
               onClick={() => setFiltroPlat(pl)}
             >
-              {pl === 'TODAS' ? 'Todos canais' : pl === 'IFOOD' ? 'iFood' : '99Food'}
+              {pl === 'TODAS' ? 'Todos canais' : pl === 'IFOOD' ? 'iFood' : pl === '99FOOD' ? '99Food' : 'Delivery'}
             </button>
           ))}
         </div>
@@ -187,11 +192,24 @@ export function KanbanPedidos({
             <IconeAtualizar size={14} /> {sincronizando ? 'Sincronizando...' : 'Sincronizar'}
           </button>
           <button type="button" className="btn btn-sm btn-primary" onClick={() => criarTeste(true)} disabled={criandoTeste}>
-            {criandoTeste ? 'Gerando...' : '+ Novo Pedido Teste'}
+            {criandoTeste ? 'Enviando...' : '+ Avaliar Pedido (PUSH)'}
           </button>
           <MenuTresPontos
             titulo="Opções de pedidos e testes"
             itens={[
+              {
+                rotulo: 'Importar pedidos do Delivery (Sistema)',
+                aoClicar: async () => {
+                  try {
+                    const r = await erpApi.importarSistema();
+                    notificar('ok', `${r.importados} pedido(s) do sistema importado(s).`);
+                    await aoRecarregar(false);
+                  } catch (err) {
+                    notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao importar pedidos do sistema.');
+                  }
+                },
+              },
+              { rotulo: 'Avaliar Pedido 99Food (PUSH)', aoClicar: async () => { setCriandoTeste(true); try { const r = await erpApi.avaliarPedido('99FOOD'); notificar('ok', `Pedido 99Food ${r.pedido?.codigoExibicao || ''} enviado via PUSH.`); await aoRecarregar(false); } catch (err) { notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao avaliar 99Food.'); } finally { setCriandoTeste(false); } } },
               { rotulo: 'Disparar só evento PING/Teste no Hub', aoClicar: () => criarTeste(false) },
               {
                 rotulo: 'Limpar pedidos de simulação local',
@@ -240,7 +258,7 @@ export function KanbanPedidos({
                       <div className="order-card-head">
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <span className="order-code">#{p.codigoCurto}</span>
-                          <span className="pill">{p.plataforma === '99FOOD' ? '99Food' : 'iFood'}</span>
+                          <span className="pill">{p.plataforma === '99FOOD' ? '99Food' : p.plataforma === 'TD' ? 'Delivery' : 'iFood'}</span>
                           {p.testeLocal ? <span className="pill pill-info">Teste</span> : null}
                           {cancelado ? <span className="pill pill-err">Cancelado</span> : null}
                         </div>

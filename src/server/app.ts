@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import express, { Router } from 'express';
+import express, { Response, Router } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import fs from 'fs';
@@ -21,6 +21,33 @@ export function criarApp() {
   );
 
   const api = Router();
+  const webhookPublicoPadrao = process.env.PUBLIC_WEBHOOK_URL || 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
+  const clientesSse = new Set<Response>();
+  const notificacoesVistas = new Set<string>();
+
+  function notificarStream(evento: string, dados: unknown) {
+    const payload = `event: ${evento}\ndata: ${JSON.stringify(dados)}\n\n`;
+    for (const cliente of clientesSse) {
+      cliente.write(payload);
+    }
+  }
+
+  api.get('/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+    res.write(`event: conectado\ndata: ${JSON.stringify({ ok: true, agora: new Date().toISOString() })}\n\n`);
+    clientesSse.add(res);
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+    }, 25_000);
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      clientesSse.delete(res);
+    });
+  });
 
   api.get('/saude', (_req, res) => {
     res.json({ ok: true, db: 'sqlite', agora: new Date().toISOString() });
@@ -37,6 +64,8 @@ export function criarApp() {
       conexaoId: c.conexaoId,
       temTokenConexao: !!c.tokenConexao,
       transporte: c.transporte,
+      webhookUrl: webhookPublicoPadrao,
+      temWebhookSegredo: !!c.webhookSegredo,
       estadoConexao: c.estadoConexao,
       lojas: JSON.parse(c.lojasVinculadasJson || '[]'),
       atualizadoEm: c.atualizadoEm,
@@ -107,8 +136,8 @@ export function criarApp() {
   api.post('/conectar-cnpj', async (req, res) => {
     const cnpj = String(req.body?.cnpj ?? '').replace(/\D/g, '');
     const nome = String(req.body?.nome ?? '').trim() || `Loja ${cnpj}`;
-    const transporte = req.body?.transporte === 'PUSH' ? 'PUSH' : 'PULL';
-    const webhookUrl = req.body?.webhookUrl ? String(req.body.webhookUrl).trim() : undefined;
+    const transporte = req.body?.transporte === 'PULL' ? 'PULL' : 'PUSH';
+    const webhookUrl = String(req.body?.webhookUrl || webhookPublicoPadrao).trim();
 
     const r = await hubFetch<any>('/hub/v1/integracao/conectar', {
       metodo: 'POST',
@@ -133,23 +162,50 @@ export function criarApp() {
       if (rec.ok && rec.json?.token) tokenConexao = rec.json.token;
     }
 
+    let webhookSegredo = r.json.credenciais?.webhookSegredo ?? cur.webhookSegredo;
+    let transporteAtual = r.json.transporte?.modo ?? transporte;
+    let urlAtual = r.json.transporte?.url ?? webhookUrl;
+
     atualizarConfig({
       cnpj: r.json.cnpj,
       nomeLoja: r.json.nome ?? nome,
       conexaoId: r.json.conexaoId,
       tokenConexao,
-      webhookSegredo: r.json.credenciais?.webhookSegredo ?? cur.webhookSegredo,
-      transporte: r.json.transporte?.modo ?? transporte,
+      webhookSegredo,
+      transporte: transporteAtual,
       estadoConexao: r.json.estado ?? '',
       lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []),
     });
 
-    // Auto-vinculo: se so existir 1 loja livre disponivel, vincular sem intervencao
+    // Se a conexao ja existia em PULL ou com outra URL, garante PUSH ativo e obtem o segredo se faltar
+    if (transporte === 'PUSH' && tokenConexao && (transporteAtual !== 'PUSH' || urlAtual !== webhookUrl)) {
+      const rw = await hubFetch<any>('/hub/v1/conexao/webhook', {
+        metodo: 'PUT',
+        tokenTipo: 'conexao',
+        body: { transporte: 'PUSH', url: webhookUrl },
+      });
+      if (rw.ok && rw.json) {
+        transporteAtual = rw.json.transporte?.modo ?? 'PUSH';
+        if (rw.json.webhookSegredo) webhookSegredo = rw.json.webhookSegredo;
+        atualizarConfig({ transporte: transporteAtual, webhookSegredo, estadoConexao: rw.json.estado ?? r.json.estado ?? '' });
+      }
+    } else if (transporte === 'PULL' && tokenConexao && transporteAtual !== 'PULL') {
+      const rw = await hubFetch<any>('/hub/v1/conexao/webhook', {
+        metodo: 'PUT',
+        tokenTipo: 'conexao',
+        body: { transporte: 'PULL' },
+      });
+      if (rw.ok && rw.json) {
+        transporteAtual = 'PULL';
+        atualizarConfig({ transporte: 'PULL', estadoConexao: rw.json.estado ?? r.json.estado ?? '' });
+      }
+    }
+
+    // Auto-vinculo: se so existir loja livre disponivel, vincular sem intervencao
     const disponiveis: Array<{ plataforma: string; loja: string; nome: string }> = [
       ...(Array.isArray(r.json.lojasDisponiveis?.ifood) ? r.json.lojasDisponiveis.ifood : []),
       ...(Array.isArray(r.json.lojasDisponiveis?.ninenine) ? r.json.lojasDisponiveis.ninenine : []),
     ];
-    // Nao re-vincular lojas que ja estao ativas na conexao
     const jaAtivas = new Set((r.json.lojas ?? []).filter((l: any) => l.estado === 'ATIVA').map((l: any) => l.loja));
     const paraVincular = disponiveis.filter((l) => !jaAtivas.has(l.loja));
     for (const loja of paraVincular) {
@@ -163,9 +219,12 @@ export function criarApp() {
       }
     }
 
-    // Resposta final com estado atualizado
     const respostaFinal = obterConfig();
-    res.status(r.status).json({ ...r.json, lojas: JSON.parse(respostaFinal.lojasVinculadasJson ?? '[]') });
+    res.status(r.status).json({
+      ...r.json,
+      transporte: { ...(r.json.transporte ?? {}), modo: respostaFinal.transporte, url: webhookUrl },
+      lojas: JSON.parse(respostaFinal.lojasVinculadasJson ?? '[]'),
+    });
   });
 
   api.post('/recuperar-token', async (_req, res) => {
@@ -203,7 +262,26 @@ export function criarApp() {
     });
     if (r.ok && r.json) {
       atualizarConfig({ estadoConexao: r.json.estado ?? '', lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []) });
+      if (req.body?.limparCatalogo !== false) {
+        db.exec('DELETE FROM catalogo_itens; DELETE FROM catalogo_categorias;');
+      }
     }
+    res.status(r.status || 400).json(r.json ?? { erro: r.text });
+  });
+
+  api.get('/entregas', async (req, res) => {
+    const estado = typeof req.query.estado === 'string' && req.query.estado ? `&estado=${encodeURIComponent(req.query.estado)}` : '';
+    const r = await hubFetch(`/hub/v1/conexao/entregas?limite=50${estado}`, { tokenTipo: 'conexao' });
+    res.status(r.status || 400).json(r.json ?? { erro: r.text });
+  });
+
+  api.post('/entregas/reprocessar', async (_req, res) => {
+    const r = await hubFetch('/hub/v1/conexao/entregas/reprocessar', { metodo: 'POST', tokenTipo: 'conexao', body: {} });
+    res.status(r.status || 400).json(r.json ?? { erro: r.text });
+  });
+
+  api.post('/webhook/reativar', async (_req, res) => {
+    const r = await hubFetch('/hub/v1/conexao/webhook/reativar', { metodo: 'POST', tokenTipo: 'conexao' });
     res.status(r.status || 400).json(r.json ?? { erro: r.text });
   });
 
@@ -269,12 +347,46 @@ export function criarApp() {
         if (!p.pedidoId) continue;
         const ja = db.prepare('SELECT id FROM pedidos WHERE id = ?').get(p.pedidoId);
         if (!ja) {
-          const det = await hubFetch(`/hub/v1/conexao/pedidos/${p.pedidoId}?plataforma=${p.plataforma}`, { tokenTipo: 'conexao' });
+          const det = await hubFetch(`/hub/v1/conexao/pedidos/${encodeURIComponent(p.pedidoId)}?plataforma=${p.plataforma}&formato=unificado`, {
+            tokenTipo: 'conexao',
+          });
           upsertPedidoDoDetalhe(p.pedidoId, p.plataforma, p.ultimoTipo || 'PLACED', det.json ?? {});
         }
       }
     }
     res.json({ ok: true, ...s });
+  });
+
+  /** Importa pedidos ja normalizados pelo Target Delivery (/hub/v1/conexao/pedidos?incluirSistema=true). */
+  api.post('/pedidos/importar-sistema', async (_req, res) => {
+    const lista = await hubFetch<any[]>('/hub/v1/conexao/pedidos?incluirSistema=true&limite=30', { tokenTipo: 'conexao' });
+    if (!lista.ok) return res.status(lista.status || 400).json(lista.json ?? { erro: lista.text });
+    const itens = Array.isArray(lista.json) ? lista.json : [];
+    for (const p of itens) {
+      if (!p?.id) continue;
+      upsertPedidoDoDetalhe(String(p.id), String(p.canal ?? 'TD'), String(p.etapaOriginal ?? 'PLACED'), p);
+    }
+    notificarStream('pedidos', { importados: itens.length });
+    res.json({ ok: true, importados: itens.length });
+  });
+
+  /** Dispara um pedido completo pelo fluxo REAL do Hub -> outbox PUSH -> Webhook -> SSE -> Kanban. */
+  api.post('/pedidos/avaliar', async (req, res) => {
+    const plataforma = req.body?.plataforma;
+    const r = await hubFetch<any>('/hub/v1/conexao/avaliar-pedido', {
+      metodo: 'POST',
+      tokenTipo: 'conexao',
+      body: { ...(plataforma ? { plataforma } : {}), comAdicionais: req.body?.comAdicionais !== false },
+    });
+    if (!r.ok || !r.json) return res.status(r.status || 400).json(r.json ?? { erro: r.text });
+
+    // Se estiver em PULL, puxa na hora; em PUSH, o proprio EntregaPushService entrega no /webhook em ms!
+    const cfg = obterConfig();
+    if (cfg.transporte === 'PULL') {
+      await sincronizarComHub().catch(() => undefined);
+      notificarStream('pedidos', { avaliacao: true, pedidoId: r.json.pedidoId });
+    }
+    res.status(201).json(r.json);
   });
 
   api.post('/pedidos/teste', async (req, res) => {
@@ -283,38 +395,21 @@ export function criarApp() {
       metodo: 'POST',
       tokenTipo: 'conexao',
     });
-    // 2. Opcionalmente cria um card de simulacao local no Kanban SQLite para testar movimentacao completa
+    // 2. Opcionalmente dispara avaliacao completa se criarCardKanban !== false
     if (req.body?.criarCardKanban !== false) {
-      const id = `sim-${crypto.randomUUID().slice(0, 8)}`;
-      const codigo = `SIM-${Math.floor(1000 + Math.random() * 9000)}`;
-      const agora = new Date().toISOString();
-      const detalhe = {
-        id,
-        displayId: codigo,
-        orderType: 'DELIVERY',
-        customer: { name: 'Cliente Simulação Local', phone: { number: '11999990000' } },
-        delivery: { deliveryAddress: { streetName: 'Rua de Homologação', streetNumber: '100', neighborhood: 'Centro', city: 'São Paulo' } },
-        items: [
-          { name: 'X-Burger Clássico (Simulação)', quantity: 1, totalPrice: 28.9, options: [{ name: 'Bacon extra', price: 4.0 }] },
-          { name: 'Refrigerante Lata', quantity: 1, totalPrice: 6.5 },
-        ],
-        payments: { methods: [{ method: 'CREDIT', type: 'ONLINE', value: 39.4 }] },
-        total: { subTotal: 39.4, deliveryFee: 0, orderAmount: 39.4 },
-      };
-      db.prepare(`
-        INSERT INTO pedidos (id, plataforma, codigoCurto, clienteNome, clienteTelefone, endereco, totalReal, statusKanban, etapaPlataforma, testeLocal, itensJson, detalheJson, eventosJson, criadoEm, atualizadoEm)
-        VALUES (?, 'IFOOD', ?, ?, '11999990000', 'Rua de Homologação, 100, Centro', 39.4, 'NOVO', 'PLACED', 1, ?, ?, ?, ?, ?)
-      `).run(
-        id,
-        codigo,
-        'Cliente Simulação Local',
-        JSON.stringify(detalhe.items),
-        JSON.stringify(detalhe),
-        JSON.stringify([{ tipo: 'SIMULACAO_LOCAL', recebidoEm: agora, hubSeq: ev.json?.seq ?? null }]),
-        agora,
-        agora,
-      );
-      return res.status(201).json({ ok: true, hubEvento: ev.json, pedidoId: id, codigo });
+      const r = await hubFetch<any>('/hub/v1/conexao/avaliar-pedido', {
+        metodo: 'POST',
+        tokenTipo: 'conexao',
+        body: { comAdicionais: true },
+      });
+      if (r.ok && r.json) {
+        const cfg = obterConfig();
+        if (cfg.transporte === 'PULL') {
+          await sincronizarComHub().catch(() => undefined);
+          notificarStream('pedidos', { avaliacao: true, pedidoId: r.json.pedidoId });
+        }
+        return res.status(201).json({ ok: true, hubEvento: ev.json, pedidoId: r.json.pedidoId, codigo: r.json.pedido?.codigoExibicao, viaHubPush: true });
+      }
     }
     res.status(ev.status || 202).json(ev.json ?? { ok: ev.ok });
   });
@@ -326,14 +421,15 @@ export function criarApp() {
 
   api.get('/pedidos/:id/subrecurso', async (req, res) => {
     const tipo = String(req.query.tipo ?? 'motivos');
-    const ped = db.prepare('SELECT testeLocal FROM pedidos WHERE id = ?').get(req.params.id) as { testeLocal: number } | undefined;
+    const ped = db.prepare('SELECT testeLocal, plataforma FROM pedidos WHERE id = ?').get(req.params.id) as { testeLocal: number; plataforma: string } | undefined;
     if (ped?.testeLocal) {
       return res.json([
         { cancelCodeId: '501', description: 'Problemas de sistema / teste', cancelSchedule: false },
         { cancelCodeId: '503', description: 'Item em falta no estoque', cancelSchedule: false },
       ]);
     }
-    const r = await hubFetch(`/hub/v1/conexao/pedidos/${encodeURIComponent(req.params.id)}/subrecurso?tipo=${encodeURIComponent(tipo)}`, {
+    const plat = ped?.plataforma ? `&plataforma=${encodeURIComponent(ped.plataforma)}` : '';
+    const r = await hubFetch(`/hub/v1/conexao/pedidos/${encodeURIComponent(req.params.id)}/subrecurso?tipo=${encodeURIComponent(tipo)}${plat}`, {
       tokenTipo: 'conexao',
     });
     res.status(r.status || 400).json(r.json ?? { erro: r.text });
@@ -403,6 +499,7 @@ export function criarApp() {
         new Date().toISOString(),
         pedidoId,
       );
+      notificarStream('pedidos', { pedidoId, statusKanban: novoKanban, etapa: etapaNova });
     }
     res.json({ ok: true, resposta: r.json, statusKanban: novoKanban });
   });
@@ -430,113 +527,136 @@ export function criarApp() {
     res.json({ ok: true });
   });
 
-  // Receptor PUSH opcional
-  api.post('/webhook', (req: any, res) => {
+  // Receptor PUSH instantaneo do Hub Target
+  api.post('/webhook', async (req: any, res) => {
+    const inicio = Date.now();
     const cfg = obterConfig();
+    const corpoTexto = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body ?? {});
+
+    if (cfg.webhookSegredo && req.headers['x-target-assinatura'] && req.rawBody) {
+      const ts = String(req.headers['x-target-timestamp'] ?? '');
+      const nid = String(req.headers['x-target-notificacao'] ?? '');
+      const base = `${ts}.${nid}.${corpoTexto}`;
+      const esperado = `v1=${crypto.createHmac('sha256', cfg.webhookSegredo).update(base).digest('hex')}`;
+      const confere = String(req.headers['x-target-assinatura']).split(',').some((s) => s.trim() === esperado);
+      if (!confere) {
+        registrarLog({
+          metodo: 'WEBHOOK_PUSH',
+          url: '/erp-simulador/api/webhook',
+          status: 401,
+          ms: Date.now() - inicio,
+          erroResumo: 'Assinatura HMAC invalida',
+          reqHeaders: JSON.stringify(req.headers),
+          reqBody: corpoTexto,
+          resBody: '{"erro":"Assinatura HMAC invalida"}',
+        } as any);
+        return res.status(401).json({ erro: 'Assinatura HMAC invalida' });
+      }
+    }
+
+    const notificacaoId = String(req.headers['x-target-notificacao'] ?? req.body?.id ?? '');
+    const plataforma = String(req.headers['x-target-plataforma'] ?? req.body?.plataforma ?? req.body?.canal ?? 'IFOOD');
+    const tipo = String(req.headers['x-target-tipo'] ?? req.body?.tipo ?? req.body?.fullCode ?? req.body?.code ?? 'EVENTO');
+    const pedidoId = String(req.headers['x-target-pedido'] ?? req.body?.pedidoId ?? req.body?.orderId ?? req.body?.pedido?.id ?? '').trim();
+    const seq = req.headers['x-target-seq'] ? Number(req.headers['x-target-seq']) : (req.body?.seq ?? null);
+
+    let processado = false;
+    if (notificacaoId && notificacoesVistas.has(notificacaoId)) {
+      processado = true;
+    } else {
+      if (notificacaoId) {
+        notificacoesVistas.add(notificacaoId);
+        if (notificacoesVistas.size > 1000) {
+          const primeiro = notificacoesVistas.values().next().value;
+          if (primeiro) notificacoesVistas.delete(primeiro);
+        }
+      }
+      if (pedidoId && cfg.tokenConexao && req.body?.teste !== true) {
+        let detalhe = req.body?.pedido ?? (req.body?.dados?.itens ? req.body.dados : null);
+        if (!detalhe) {
+          const det = await hubFetch(`/hub/v1/conexao/pedidos/${encodeURIComponent(pedidoId)}?plataforma=${encodeURIComponent(plataforma)}&formato=unificado`, {
+            tokenTipo: 'conexao',
+          });
+          detalhe = det.json ?? {};
+        }
+        upsertPedidoDoDetalhe(pedidoId, plataforma, tipo, detalhe, {
+          seq,
+          tipo,
+          recebidoEm: new Date().toISOString(),
+          origem: 'WEBHOOK_PUSH',
+          notificacaoId: notificacaoId || null,
+        });
+        processado = true;
+      }
+    }
+
     registrarLog({
       metodo: 'WEBHOOK_PUSH',
       url: '/erp-simulador/api/webhook',
       status: 200,
-      ms: 1,
+      ms: Date.now() - inicio,
       reqHeaders: JSON.stringify(req.headers),
-      reqBody: req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body ?? {}),
-      resBody: '{"recebido":true}',
+      reqBody: corpoTexto,
+      resBody: JSON.stringify({ recebido: true, processado, pedidoId: pedidoId || null, tipo }),
     } as any);
-    if (cfg.webhookSegredo && req.headers['x-target-assinatura'] && req.rawBody) {
-      const ts = String(req.headers['x-target-timestamp'] ?? '');
-      const nid = String(req.headers['x-target-notificacao'] ?? '');
-      const base = `${ts}.${nid}.${req.rawBody.toString('utf8')}`;
-      const esperado = `v1=${crypto.createHmac('sha256', cfg.webhookSegredo).update(base).digest('hex')}`;
-      const confere = String(req.headers['x-target-assinatura']).split(',').some((s) => s.trim() === esperado);
-      if (!confere) return res.status(401).json({ erro: 'Assinatura HMAC invalida' });
-    }
-    res.json({ recebido: true });
+
+    notificarStream('webhook', { tipo, plataforma, pedidoId: pedidoId || null, seq, recebidoEm: new Date().toISOString() });
+    res.json({ recebido: true, processado });
   });
 
-  // ── Catálogo Completo (SQLite + Sync Hub) ──────────────────────────────────
+  // ── Catálogo Completo Unificado (SQLite + Sync Hub) ────────────────────────
 
   async function sincronizarCatalogoNoSqlite() {
-    const r = await hubFetch<any>('/hub/v1/conexao/catalogo', { tokenTipo: 'conexao' });
+    const r = await hubFetch<any>('/hub/v1/conexao/catalogo/unificado', { tokenTipo: 'conexao' });
     if (!r.ok || !r.json) return r;
 
     const agora = new Date().toISOString();
+    const cats = Array.isArray(r.json.categorias) ? r.json.categorias : [];
     const tx = db.transaction(() => {
       db.prepare('DELETE FROM catalogo_itens').run();
       db.prepare('DELETE FROM catalogo_categorias').run();
 
-      const catsIfood = r.json.ifood?.categorias ?? [];
-      catsIfood.forEach((cat: any, idx: number) => {
+      cats.forEach((cat: any, idx: number) => {
+        const plat = String(cat.plataforma ?? 'IFOOD');
         db.prepare(`
-          INSERT INTO catalogo_categorias (id, plataforma, nome, status, ordem, payloadJson, atualizadoEm)
-          VALUES (?, 'IFOOD', ?, ?, ?, ?, ?)
-        `).run(cat.id, cat.name ?? 'Sem nome', cat.status ?? 'AVAILABLE', cat.sequence ?? idx, JSON.stringify(cat), agora);
+          INSERT OR REPLACE INTO catalogo_categorias (id, plataforma, nome, status, ordem, payloadJson, atualizadoEm)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(String(cat.id), plat, String(cat.nome ?? 'Sem nome'), String(cat.status ?? 'AVAILABLE'), Number(cat.ordem ?? idx), JSON.stringify(cat), agora);
 
-        (cat.items ?? []).forEach((it: any, itIdx: number) => {
+        (Array.isArray(cat.itens) ? cat.itens : []).forEach((it: any, itIdx: number) => {
+          const gruposNormalizados = (Array.isArray(it.grupos) ? it.grupos : []).map((g: any) => ({
+            id: g.id,
+            name: g.nome ?? g.name ?? 'Complementos',
+            min: Number(g.min ?? 0),
+            max: Number(g.max ?? 1),
+            status: g.status ?? 'AVAILABLE',
+            options: (Array.isArray(g.opcoes) ? g.opcoes : Array.isArray(g.options) ? g.options : []).map((op: any) => ({
+              id: op.id,
+              name: op.nome ?? op.name ?? 'Opção',
+              externalCode: op.sku ?? op.externalCode ?? '',
+              status: op.status ?? 'AVAILABLE',
+              price: { value: Number(op.preco ?? op.price?.value ?? 0) },
+            })),
+          }));
           db.prepare(`
-            INSERT INTO catalogo_itens (id, categoriaId, plataforma, nome, descricao, sku, preco, status, ordem, gruposJson, payloadJson, atualizadoEm)
-            VALUES (?, ?, 'IFOOD', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO catalogo_itens (id, categoriaId, plataforma, nome, descricao, sku, preco, status, ordem, gruposJson, payloadJson, atualizadoEm)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
-            it.id,
-            cat.id,
-            it.name ?? 'Item',
-            it.description ?? '',
-            it.externalCode ?? '',
-            Number(it.price?.value ?? 0),
-            it.status ?? 'AVAILABLE',
-            it.sequence ?? itIdx,
-            JSON.stringify(it.optionGroups ?? []),
+            String(it.id),
+            String(cat.id),
+            plat,
+            String(it.nome ?? 'Item'),
+            String(it.descricao ?? ''),
+            String(it.sku ?? ''),
+            Number(it.preco ?? 0),
+            String(it.status ?? 'AVAILABLE'),
+            Number(it.ordem ?? itIdx),
+            JSON.stringify(gruposNormalizados),
             JSON.stringify(it),
             agora,
           );
         });
       });
-
-      const lista99 = Array.isArray(r.json.ninenine?.cardapio)
-        ? r.json.ninenine.cardapio
-        : Array.isArray(r.json.ninenine?.cardapio?.items)
-          ? r.json.ninenine.cardapio.items
-          : Array.isArray(r.json.ninenine?.cardapio?.data)
-            ? r.json.ninenine.cardapio.data
-            : [];
-      if (lista99.length > 0) {
-        const grupos99 = new Map<string, any[]>();
-        for (const it of lista99) {
-          const catNome = String(it.category_name ?? it.categoryName ?? 'Cardápio 99Food');
-          if (!grupos99.has(catNome)) grupos99.set(catNome, []);
-          grupos99.get(catNome)!.push(it);
-        }
-        let catSeq = 1000;
-        for (const [catNome, itens99] of grupos99.entries()) {
-          const catId = `99cat-${Buffer.from(catNome).toString('hex').slice(0, 12)}`;
-          db.prepare(`
-            INSERT OR REPLACE INTO catalogo_categorias (id, plataforma, nome, status, ordem, payloadJson, atualizadoEm)
-            VALUES (?, '99FOOD', ?, 'AVAILABLE', ?, ?, ?)
-          `).run(catId, catNome, catSeq++, JSON.stringify({ nome: catNome, origem: '99FOOD' }), agora);
-
-          itens99.forEach((it: any, iIdx: number) => {
-            const id99 = String(it.app_item_id ?? it.item_id ?? it.id ?? `99-${catSeq}-${iIdx}`);
-            const precoCent = Number(it.price ?? 0);
-            const precoReais = precoCent > 200 ? precoCent / 100 : precoCent;
-            const ativo = it.status === 1 || it.status === 'AVAILABLE' || it.available === true;
-            db.prepare(`
-              INSERT OR REPLACE INTO catalogo_itens (id, categoriaId, plataforma, nome, descricao, sku, preco, status, ordem, gruposJson, payloadJson, atualizadoEm)
-              VALUES (?, ?, '99FOOD', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              id99,
-              catId,
-              String(it.item_name ?? it.name ?? 'Item 99Food'),
-              String(it.description ?? ''),
-              String(it.app_item_id ?? it.external_code ?? ''),
-              precoReais,
-              ativo ? 'AVAILABLE' : 'UNAVAILABLE',
-              iIdx,
-              JSON.stringify(it.modifier_groups ?? it.optionGroups ?? []),
-              JSON.stringify(it),
-              agora,
-            );
-          });
-        }
-      }
     });
     tx();
     return r;

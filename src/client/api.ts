@@ -18,6 +18,8 @@ export interface Sessao {
   conexaoId: string;
   temTokenConexao: boolean;
   transporte: string;
+  webhookUrl?: string;
+  temWebhookSegredo?: boolean;
   estadoConexao: string;
   lojas: LojaVinculada[];
   atualizadoEm: string;
@@ -135,8 +137,17 @@ export const erpApi = {
 
   listarPedidos: (sync = false) => req<PedidoErp[]>(`/pedidos${sync ? '?sync=true' : ''}`),
   sincronizarPedidos: () => req<{ ok: boolean; novosEventos: number }>('/pedidos/sincronizar', { method: 'POST' }),
+  importarSistema: () => req<{ ok: boolean; importados: number }>('/pedidos/importar-sistema', { method: 'POST' }),
+  avaliarPedido: (plataforma?: 'IFOOD' | '99FOOD') =>
+    req<{ ok: boolean; seq: number; eventoId: string; pedidoId: string; pedido: any }>('/pedidos/avaliar', {
+      method: 'POST',
+      body: JSON.stringify(plataforma ? { plataforma } : {}),
+    }),
   criarPedidoTeste: (criarCardKanban = true) =>
     req('/pedidos/teste', { method: 'POST', body: JSON.stringify({ criarCardKanban }) }),
+  listarEntregas: () => req<any[]>('/entregas'),
+  reprocessarEntregas: () => req<{ reprocessadas: number }>('/entregas/reprocessar', { method: 'POST' }),
+  reativarPush: () => req('/webhook/reativar', { method: 'POST' }),
   limparSimulacoes: () => req<{ removidos: number }>('/pedidos/simulacoes', { method: 'DELETE' }),
   subrecursoPedido: (id: string, tipo: 'motivos' | 'rastreio' | 'sacola') =>
     req<any>(`/pedidos/${encodeURIComponent(id)}/subrecurso?tipo=${tipo}`),
@@ -176,12 +187,23 @@ export const erpApi = {
 };
 
 export function extrairStatusIfood(statusLoja: any): { carregado: boolean; aberta: boolean; titulo: string } {
+  const unif = statusLoja?.unificado?.ifood;
+  if (unif) return { carregado: true, aberta: !!unif.aberta, titulo: unif.titulo || '' };
   const bruto = statusLoja?.ifood?.status;
   const item = Array.isArray(bruto) ? bruto.find((s: any) => s?.salesChannel === 'ifood-app') ?? bruto[0] : bruto;
   if (!item) return { carregado: false, aberta: false, titulo: '' };
   const aberta = item.state === 'OK' || item.available === true;
   const titulo = item.message?.title || item.message?.status || (aberta ? 'Loja aberta' : 'Loja fechada');
   return { carregado: true, aberta, titulo };
+}
+
+export function extrairStatus99(statusLoja: any): { carregado: boolean; aberta: boolean; titulo: string } {
+  const unif = statusLoja?.unificado?.ninenine;
+  if (unif) return { carregado: true, aberta: !!unif.aberta, titulo: unif.titulo || '' };
+  const det = statusLoja?.ninenine?.detalhe?.data ?? statusLoja?.ninenine?.detalhe;
+  if (!det) return { carregado: false, aberta: false, titulo: '' };
+  const aberta = Number(det.biz_status) === 1 || det.status === 'OPEN';
+  return { carregado: true, aberta, titulo: aberta ? 'Loja aberta' : 'Loja fechada' };
 }
 
 export function formatarMoeda(valor: number): string {

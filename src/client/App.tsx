@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ApiErro, CatalogoCategoria, PedidoErp, Sessao, erpApi, extrairStatusIfood } from './api';
+import { ApiErro, CatalogoCategoria, PedidoErp, Sessao, erpApi, extrairStatus99, extrairStatusIfood } from './api';
 import { GestorCatalogo } from './components/GestorCatalogo';
 import { IconeTema } from './components/Icones';
 import { KanbanPedidos } from './components/KanbanPedidos';
@@ -90,14 +90,32 @@ export function App() {
     void bootstrap();
   }, [bootstrap]);
 
-  // Atualização silenciosa de pedidos a cada 12s
+  // Atualização em tempo real via SSE (Webhook PUSH) + fallback de backup em PULL
   useEffect(() => {
     if (!sessao?.autenticado || !sessao?.cnpj) return;
+    const es = new EventSource('/erp-simulador/api/stream');
+    es.addEventListener('webhook', (ev) => {
+      void carregarPedidos(false);
+      try {
+        const d = JSON.parse((ev as MessageEvent).data);
+        if (d?.pedidoId) {
+          notificar('ok', `Webhook PUSH recebido (${d.plataforma || 'HUB'} · ${d.tipo || 'evento'}).`);
+        }
+      } catch {
+        // ignora parse
+      }
+    });
+    es.addEventListener('pedidos', () => {
+      void carregarPedidos(false);
+    });
     const t = setInterval(() => {
-      void carregarPedidos(true);
+      if (sessao.transporte !== 'PUSH') void carregarPedidos(true);
     }, 12000);
-    return () => clearInterval(t);
-  }, [sessao?.autenticado, sessao?.cnpj, carregarPedidos]);
+    return () => {
+      es.close();
+      clearInterval(t);
+    };
+  }, [sessao?.autenticado, sessao?.cnpj, sessao?.transporte, carregarPedidos, notificar]);
 
   async function sair(limparDados = false) {
     await erpApi.sair(limparDados);
@@ -153,6 +171,7 @@ export function App() {
   const ativosCount = pedidos.filter((p) => p.statusKanban !== 'CONCLUIDO' && p.statusKanban !== 'CANCELADO').length;
   const totalItens = categorias.reduce((s, c) => s + c.itens.length, 0);
   const stIfood = extrairStatusIfood(statusLoja);
+  const st99 = extrairStatus99(statusLoja);
   const lojaIfoodOk = stIfood.aberta;
 
   return (
@@ -190,11 +209,26 @@ export function App() {
 
         <div className="topbar-right">
           {sessao.lojas.map((l) => {
-            const aberto = l.plataforma === 'IFOOD' && statusLoja?.ifood ? lojaIfoodOk : l.estado === 'ATIVA';
+            const aberto =
+              l.plataforma === 'IFOOD' && stIfood.carregado
+                ? lojaIfoodOk
+                : l.plataforma === '99FOOD' && st99.carregado
+                  ? st99.aberta
+                  : l.estado === 'ATIVA';
+            const textoStatus =
+              l.plataforma === 'IFOOD' && stIfood.carregado
+                ? lojaIfoodOk
+                  ? 'Aberta'
+                  : 'Fechada'
+                : l.plataforma === '99FOOD' && st99.carregado
+                  ? st99.aberta
+                    ? 'Aberta'
+                    : 'Fechada'
+                  : l.estado;
             return (
               <span key={`${l.plataforma}-${l.loja}`} className={`pill ${aberto ? 'pill-ok' : 'pill-warn'}`}>
                 <span className="dot" />
-                {l.plataforma === 'IFOOD' ? 'iFood' : '99Food'}: {l.plataforma === 'IFOOD' && statusLoja?.ifood ? (lojaIfoodOk ? 'Aberta' : 'Fechada') : l.estado}
+                {l.plataforma === 'IFOOD' ? 'iFood' : '99Food'}: {textoStatus}
               </span>
             );
           })}

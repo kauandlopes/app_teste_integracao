@@ -213,7 +213,7 @@ export function GestorCatalogo({
       payloadRaw: it.payload,
       mostrarJson: false,
     });
-    if (it.plataforma === 'IFOOD') {
+    if (it.plataforma === 'IFOOD' && (!Array.isArray(it.grupos) || it.grupos.length === 0)) {
       try {
         const det = await erpApi.detalheItem(it.id);
         setModalItem((cur) =>
