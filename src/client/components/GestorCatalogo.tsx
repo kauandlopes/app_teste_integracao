@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { erpApi, EstadoProduto, formatarMoeda, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
 import { EditorProduto } from './EditorProduto';
 import { IconeAtualizar } from './Icones';
@@ -39,8 +39,19 @@ export function GestorCatalogo({
   const [aberto, setAberto] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const [categoriasPlataforma, setCategoriasPlataforma] = useState<string[]>([]);
 
-  const categorias = useMemo(() => [...new Set(produtos.map((p) => p.produto.categoria))].sort(), [produtos]);
+  useEffect(() => {
+    void erpApi.catalogo
+      .plataformas(false)
+      .then((r) => setCategoriasPlataforma(r.categorias.map((c) => c.nome).filter(Boolean)))
+      .catch(() => {});
+  }, [produtos.length]);
+
+  const categorias = useMemo(
+    () => [...new Set([...produtos.map((p) => p.produto.categoria), ...categoriasPlataforma])].filter(Boolean).sort(),
+    [produtos, categoriasPlataforma],
+  );
   const skus = useMemo(() => new Set(produtos.map((p) => p.produto.codigo)), [produtos]);
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
