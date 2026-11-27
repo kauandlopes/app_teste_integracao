@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ApiErro, CatalogoCategoria, PedidoErp, Sessao, erpApi, extrairStatus99, extrairStatusIfood } from './api';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { erpApi, extrairStatus99, extrairStatusIfood, Fila, mensagemDe, nomeCanal, PedidoErp, ProdutoCadastrado, Sessao } from './api';
 import { GestorCatalogo } from './components/GestorCatalogo';
 import { IconeTema } from './components/Icones';
 import { KanbanPedidos } from './components/KanbanPedidos';
@@ -8,68 +8,99 @@ import { ModalLogs } from './components/ModalLogs';
 import { PainelConexao } from './components/PainelConexao';
 import { PainelDocumentacao } from './components/PainelDocumentacao';
 import { TelaEntrada } from './components/TelaEntrada';
+import { TokensRotas } from './components/TokensRotas';
+import { liberarAudio, tocarAlerta } from './som';
 
-type Aba = 'pedidos' | 'catalogo' | 'lojas' | 'docs';
+type Aba = 'pedidos' | 'catalogo' | 'lojas' | 'tokens' | 'docs';
+const ABAS: Array<[Aba, string]> = [
+  ['pedidos', 'Pedidos'],
+  ['catalogo', 'Cardápio'],
+  ['lojas', 'Lojas e operação'],
+  ['tokens', 'Tokens e rotas'],
+  ['docs', 'Documentação'],
+];
+
+const lerPreferencia = (chave: string) => {
+  try {
+    return localStorage.getItem(chave);
+  } catch {
+    return null;
+  }
+};
+const gravarPreferencia = (chave: string, valor: string) => {
+  try {
+    localStorage.setItem(chave, valor);
+  } catch {
+    // navegacao privada: a preferencia vale so nesta aba
+  }
+};
 
 export function App() {
-  const [escuro, setEscuro] = useState<boolean>(() => localStorage.getItem('erp-tema') === 'dark');
+  const [escuro, setEscuro] = useState(() => lerPreferencia('erp-tema') === 'dark');
+  const [somLigado, setSomLigado] = useState(() => lerPreferencia('erp-som') !== 'off');
   const [carregando, setCarregando] = useState(true);
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [aba, setAba] = useState<Aba>('pedidos');
 
   const [pedidos, setPedidos] = useState<PedidoErp[]>([]);
-  const [categorias, setCategorias] = useState<CatalogoCategoria[]>([]);
+  const [aceiteAutomatico, setAceiteAutomatico] = useState(false);
+  const [fila, setFila] = useState<Fila>({ pendentes: 0, comFalha: 0, erro: 0 });
+  const [produtos, setProdutos] = useState<ProdutoCadastrado[]>([]);
   const [statusLoja, setStatusLoja] = useState<any>(null);
   const [totalErrosLogs, setTotalErrosLogs] = useState(0);
   const [logsAberto, setLogsAberto] = useState(false);
-
   const [toasts, setToasts] = useState<Array<{ id: number; tipo: 'ok' | 'erro'; msg: string }>>([]);
+  const somRef = useRef(somLigado);
+  somRef.current = somLigado;
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', escuro ? 'dark' : 'light');
-    localStorage.setItem('erp-tema', escuro ? 'dark' : 'light');
+    gravarPreferencia('erp-tema', escuro ? 'dark' : 'light');
   }, [escuro]);
+
+  // O navegador so permite audio depois de um clique na pagina
+  useEffect(() => {
+    document.addEventListener('pointerdown', liberarAudio);
+    return () => document.removeEventListener('pointerdown', liberarAudio);
+  }, []);
 
   const notificar = useCallback((tipo: 'ok' | 'erro', msg: string) => {
     const id = Date.now() + Math.random();
-    setToasts((cur) => [...cur.slice(-3), { id, tipo, msg }]);
-    if (tipo === 'erro') {
-      void erpApi.listarLogs('erros').then((r) => setTotalErrosLogs(r.totalErros)).catch(() => undefined);
-    }
-    setTimeout(() => setToasts((cur) => cur.filter((t) => t.id !== id)), 4500);
+    setToasts((atual) => [...atual.slice(-3), { id, tipo, msg }]);
+    if (tipo === 'erro') void erpApi.listarLogs('erros').then((r) => setTotalErrosLogs(r.totalErros)).catch(() => undefined);
+    setTimeout(() => setToasts((atual) => atual.filter((t) => t.id !== id)), tipo === 'erro' ? 9000 : 4500);
   }, []);
 
   const carregarSessao = useCallback(async () => {
     const s = await erpApi.sessao();
     setSessao(s);
-    if (!s.cnpj && s.autenticado) setAba('lojas');
     return s;
   }, []);
 
-  const carregarPedidos = useCallback(async (sync = false) => {
+  const carregarPedidos = useCallback(async () => {
     try {
-      const lista = await erpApi.listarPedidos(sync);
-      setPedidos(lista);
+      const r = await erpApi.listarPedidos();
+      setPedidos(r.pedidos);
+      setAceiteAutomatico(r.aceiteAutomatico);
+      setFila(r.fila);
     } catch {
-      // erro registrado automaticamente nos logs SQLite
+      // sem conexao com o ERP: a proxima atualizacao tenta de novo
     }
   }, []);
 
-  const carregarCatalogo = useCallback(async (sincronizar = false) => {
+  const carregarProdutos = useCallback(async () => {
     try {
-      const c = await erpApi.catalogo(sincronizar);
-      setCategorias(c.categorias ?? []);
-    } catch (err) {
-      if (sincronizar) throw err;
+      setProdutos(await erpApi.produtos());
+    } catch {
+      // idem
     }
   }, []);
 
   const carregarStatusLoja = useCallback(async () => {
     try {
-      const st = await erpApi.statusLoja();
-      setStatusLoja(st);
+      setStatusLoja(await erpApi.statusLoja());
     } catch {
-      // ignora silenciosamente se loja nao estiver vinculada ainda
+      // loja ainda nao vinculada
     }
   }, []);
 
@@ -77,78 +108,94 @@ export function App() {
     setCarregando(true);
     try {
       const s = await carregarSessao();
-      const l = await erpApi.listarLogs('erros').catch(() => ({ totalErros: 0 }));
-      setTotalErrosLogs(l.totalErros ?? 0);
-      if (s.autenticado && s.cnpj) {
-        await Promise.all([carregarPedidos(false), carregarCatalogo(false), carregarStatusLoja()]);
+      if (s.autenticado && !s.cnpj) setAba('lojas');
+      setTotalErrosLogs((await erpApi.listarLogs('erros').catch(() => ({ totalErros: 0 }))).totalErros);
+      if (s.autenticado) {
+        await Promise.all([carregarPedidos(), carregarProdutos()]);
+        if (s.cnpj) void carregarStatusLoja();
       }
+    } catch (err) {
+      notificar('erro', mensagemDe(err, 'Servidor do ERP indisponível.'));
     } finally {
       setCarregando(false);
     }
-  }, [carregarSessao, carregarPedidos, carregarCatalogo, carregarStatusLoja]);
+  }, [carregarSessao, carregarPedidos, carregarProdutos, carregarStatusLoja, notificar]);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
 
-  // Atualização em tempo real via SSE (Webhook PUSH) + fallback de backup em PULL
+  // Tempo real pelo servidor do ERP, com consulta periodica caso a conexao ao vivo caia
   useEffect(() => {
-    if (!sessao?.autenticado || !sessao?.cnpj) return;
+    if (!sessao?.autenticado) return;
     const es = new EventSource('/erp-simulador/api/stream');
-    es.addEventListener('webhook', (ev) => {
-      void carregarPedidos(false);
-      try {
-        const d = JSON.parse((ev as MessageEvent).data);
-        if (d?.pedidoId) {
-          notificar('ok', `Webhook PUSH recebido (${d.plataforma || 'HUB'} · ${d.tipo || 'evento'}).`);
-        }
-      } catch {
-        // ignora parse
+    es.addEventListener('pedidos', (ev) => {
+      void carregarPedidos();
+      const d = JSON.parse((ev as MessageEvent).data || '{}');
+      if (d.novo) {
+        if (somRef.current) tocarAlerta();
+        notificar('ok', `Pedido novo ${nomeCanal(d.canal)}.`);
       }
+      if (d.aviso) notificar('erro', `Pedido #${d.codigo ?? ''}: ${d.aviso}`);
     });
-    es.addEventListener('pedidos', () => {
-      void carregarPedidos(false);
+    es.addEventListener('catalogo', () => void carregarProdutos());
+    es.addEventListener('conectado', () => {
+      void carregarPedidos();
+      void carregarProdutos();
     });
     const t = setInterval(() => {
-      if (sessao.transporte !== 'PUSH') void carregarPedidos(true);
-    }, 12000);
+      void carregarPedidos();
+      void carregarProdutos();
+    }, 15_000);
     return () => {
       es.close();
       clearInterval(t);
     };
-  }, [sessao?.autenticado, sessao?.cnpj, sessao?.transporte, carregarPedidos, notificar]);
+  }, [sessao?.autenticado, carregarPedidos, carregarProdutos, notificar]);
 
-  async function sair(limparDados = false) {
+  const novos = pedidos.filter((p) => p.statusKanban === 'NOVO' && p.plataforma !== 'TD').length;
+  const urgentes = pedidos.filter((p) => p.pendencias.disputa || p.pendencias.cancelamentoCliente).length;
+
+  // Enquanto houver pedido sem aceite ou solicitacao com prazo curto, o alerta se repete
+  useEffect(() => {
+    document.title = novos ? `(${novos}) Pedido novo` : 'Gestor Delivery ERP';
+    if (!somLigado || (!novos && !urgentes)) return;
+    const t = setInterval(tocarAlerta, 8000);
+    return () => clearInterval(t);
+  }, [novos, urgentes, somLigado]);
+
+  async function sair(limparDados: boolean) {
     await erpApi.sair(limparDados);
-    setPedidos([]);
-    setCategorias([]);
+    if (limparDados) setPedidos([]);
     setStatusLoja(null);
     await carregarSessao();
   }
 
-  async function desvincularLojas() {
-    if (!sessao?.lojas?.length) return;
-    try {
-      for (const l of sessao.lojas) {
-        if (l.loja) {
-          await erpApi.liberarLoja(l.plataforma, l.loja);
-        }
-      }
-      setStatusLoja(null);
-      await carregarSessao();
-      setAba('lojas');
-      notificar('ok', 'Loja desvinculada. Pronta para vincular novamente.');
-    } catch (err) {
-      notificar('erro', err instanceof ApiErro ? err.message : 'Falha ao desvincular loja.');
-    }
-  }
+  const avisosFlutuantes = toasts.length ? (
+    <div className="toast-bar">
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast ${t.tipo}`}>
+          <span style={{ fontSize: 13 }}>{t.msg}</span>
+          <div className="linha">
+            {t.tipo === 'erro' ? (
+              <button type="button" className="btn btn-sm" onClick={() => setLogsAberto(true)}>
+                Ver log
+              </button>
+            ) : null}
+            <button type="button" className="btn-icon" title="Fechar aviso" onClick={() => setToasts((c) => c.filter((x) => x.id !== t.id))}>
+              ×
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : null;
+  const logs = logsAberto ? <ModalLogs aoFechar={() => setLogsAberto(false)} aoMudarContagem={setTotalErrosLogs} /> : null;
 
   if (carregando) {
     return (
       <div className="login-page">
-        <div className="card" style={{ padding: '18px 24px' }}>
-          Carregando sistema...
-        </div>
+        <div className="card">Carregando sistema...</div>
       </div>
     );
   }
@@ -164,119 +211,58 @@ export function App() {
           aoAbrirLogs={() => setLogsAberto(true)}
           aoEntrar={() => void bootstrap()}
         />
-        {logsAberto ? <ModalLogs aoFechar={() => setLogsAberto(false)} aoMudarContagem={setTotalErrosLogs} /> : null}
+        {logs}
+        {avisosFlutuantes}
       </>
     );
   }
 
-  const ativosCount = pedidos.filter((p) => p.statusKanban !== 'CONCLUIDO' && p.statusKanban !== 'CANCELADO').length;
-  const totalItens = categorias.reduce((s, c) => s + c.itens.length, 0);
-  const stIfood = extrairStatusIfood(statusLoja);
-  const st99 = extrairStatus99(statusLoja);
-  const lojaIfoodOk = stIfood.aberta;
+  const ativos = pedidos.filter((p) => p.statusKanban !== 'CONCLUIDO' && p.statusKanban !== 'CANCELADO').length;
+  const status = { IFOOD: extrairStatusIfood(statusLoja), '99FOOD': extrairStatus99(statusLoja) };
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="topbar-left">
-          <div className="brand-mark">
-            <div>
-              <div className="brand-title">{sessao.nomeLoja || 'Gestor Delivery ERP'}</div>
-              <div className="brand-sub">
-                {sessao.cnpj ? `CNPJ ${sessao.cnpj}` : 'Nenhuma empresa conectada'} · {sessao.transporte}
-              </div>
+          <div>
+            <div className="brand-title">{sessao.nomeLoja || 'Gestor Delivery ERP'}</div>
+            <div className="brand-sub">
+              {sessao.cnpj ? `CNPJ ${sessao.cnpj}` : 'Nenhuma empresa conectada'} · {sessao.transporte}
             </div>
           </div>
-
           <nav className="nav-tabs" aria-label="Navegação principal">
-            <button type="button" className={`nav-tab${aba === 'pedidos' ? ' active' : ''}`} onClick={() => setAba('pedidos')}>
-              Pedidos <span className="pill">{ativosCount}</span>
-            </button>
-            <button
-              type="button"
-              className={`nav-tab${aba === 'catalogo' ? ' active' : ''}`}
-              onClick={() => {
-                setAba('catalogo');
-                if (categorias.length === 0) void carregarCatalogo(true);
-              }}
-            >
-              Cardápio <span className="pill">{totalItens}</span>
-            </button>
-            <button type="button" className={`nav-tab${aba === 'lojas' ? ' active' : ''}`} onClick={() => setAba('lojas')}>
-              Lojas e Operação
-            </button>
-            <button type="button" className={`nav-tab${aba === 'docs' ? ' active' : ''}`} onClick={() => setAba('docs')}>
-              Documentação API
-            </button>
+            {ABAS.map(([chave, rotulo]) => (
+              <button key={chave} type="button" className={`nav-tab${aba === chave ? ' active' : ''}`} onClick={() => setAba(chave)}>
+                {rotulo}
+                {chave === 'pedidos' ? <span className={`pill ${novos || urgentes ? 'pill-err' : ''}`}>{ativos}</span> : null}
+                {chave === 'catalogo' ? <span className="pill">{produtos.length}</span> : null}
+              </button>
+            ))}
           </nav>
         </div>
 
         <div className="topbar-right">
           {sessao.lojas.map((l) => {
-            const aberto =
-              l.plataforma === 'IFOOD' && stIfood.carregado
-                ? lojaIfoodOk
-                : l.plataforma === '99FOOD' && st99.carregado
-                  ? st99.aberta
-                  : l.estado === 'ATIVA';
-            const textoStatus =
-              l.plataforma === 'IFOOD' && stIfood.carregado
-                ? lojaIfoodOk
-                  ? 'Aberta'
-                  : 'Fechada'
-                : l.plataforma === '99FOOD' && st99.carregado
-                  ? st99.aberta
-                    ? 'Aberta'
-                    : 'Fechada'
-                  : l.estado;
+            const s = status[l.plataforma as 'IFOOD' | '99FOOD'];
+            const aberta = s?.carregado ? s.aberta : l.estado === 'ATIVA';
             return (
-              <span key={`${l.plataforma}-${l.loja}`} className={`pill ${aberto ? 'pill-ok' : 'pill-warn'}`}>
+              <span key={`${l.plataforma}-${l.loja}`} className={`pill ${aberta ? 'pill-ok' : 'pill-warn'}`} title={l.nome ?? ''}>
                 <span className="dot" />
-                {l.plataforma === 'IFOOD' ? 'iFood' : '99Food'}: {textoStatus}
+                {nomeCanal(l.plataforma)}: {s?.carregado ? (s.aberta ? 'Aberta' : 'Fechada') : l.estado}
               </span>
             );
           })}
-
-          {sessao.lojas.some((l) => l.loja && l.estado === 'ATIVA') ? (
-            <button type="button" className="btn btn-sm btn-danger" onClick={() => void desvincularLojas()}>
-              Desvincular loja
-            </button>
-          ) : null}
-
+          <button type="button" className={`btn btn-sm ${totalErrosLogs ? 'btn-danger' : ''}`} onClick={() => setLogsAberto(true)}>
+            Logs{totalErrosLogs ? ` (${totalErrosLogs} erros)` : ''}
+          </button>
           <button type="button" className="btn-icon" title={escuro ? 'Tema claro' : 'Tema escuro'} onClick={() => setEscuro((v) => !v)}>
             <IconeTema escuro={escuro} />
           </button>
-
           <MenuTresPontos
-            titulo="Menu técnico, logs e sessão"
-            temAlerta={totalErrosLogs > 0}
+            titulo="Sessão"
             itens={[
-              {
-                rotulo: 'Logs HTTP e Erros SQLite',
-                badge: totalErrosLogs > 0 ? `${totalErrosLogs} erros` : undefined,
-                aoClicar: () => setLogsAberto(true),
-              },
-              {
-                rotulo: 'Sincronizar tudo agora',
-                aoClicar: async () => {
-                  try {
-                    await Promise.all([carregarPedidos(true), carregarCatalogo(true), carregarStatusLoja()]);
-                    notificar('ok', 'Pedidos e cardápio sincronizados.');
-                  } catch (err) {
-                    notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao sincronizar.');
-                  }
-                },
-              },
-              {
-                rotulo: 'Sair e trocar token',
-                separadorAntes: true,
-                aoClicar: () => void sair(false),
-              },
-              {
-                rotulo: 'Sair e limpar cache SQLite',
-                perigo: true,
-                aoClicar: () => void sair(true),
-              },
+              { rotulo: 'Sair e trocar token', aoClicar: () => void sair(false) },
+              { rotulo: 'Sair, desconectar e limpar pedidos', perigo: true, separadorAntes: true, aoClicar: () => void sair(true) },
             ]}
           />
         </div>
@@ -286,23 +272,23 @@ export function App() {
         {aba === 'pedidos' ? (
           <KanbanPedidos
             pedidos={pedidos}
+            aceiteAutomatico={aceiteAutomatico}
+            fila={fila}
+            somLigado={somLigado}
+            aoAlternarSom={() => {
+              liberarAudio();
+              setSomLigado((v) => {
+                gravarPreferencia('erp-som', v ? 'off' : 'on');
+                if (!v) setTimeout(tocarAlerta, 150);
+                return !v;
+              });
+            }}
             notificar={notificar}
             aoRecarregar={carregarPedidos}
             aoAbrirLogs={() => setLogsAberto(true)}
           />
         ) : null}
-
-        {aba === 'catalogo' ? (
-          <GestorCatalogo
-            categorias={categorias}
-            statusLoja={statusLoja}
-            notificar={notificar}
-            aoRecarregarCatalogo={carregarCatalogo}
-            aoRecarregarStatusLoja={carregarStatusLoja}
-            aoAbrirLogs={() => setLogsAberto(true)}
-          />
-        ) : null}
-
+        {aba === 'catalogo' ? <GestorCatalogo produtos={produtos} notificar={notificar} aoRecarregar={carregarProdutos} aoAbrirLogs={() => setLogsAberto(true)} /> : null}
         {aba === 'lojas' ? (
           <PainelConexao
             sessao={sessao}
@@ -315,31 +301,12 @@ export function App() {
             aoAbrirLogs={() => setLogsAberto(true)}
           />
         ) : null}
-
+        {aba === 'tokens' ? <TokensRotas notificar={notificar} /> : null}
         {aba === 'docs' ? <PainelDocumentacao sessao={sessao} notificar={notificar} /> : null}
       </main>
 
-      {logsAberto ? <ModalLogs aoFechar={() => setLogsAberto(false)} aoMudarContagem={setTotalErrosLogs} /> : null}
-
-      {toasts.length > 0 ? (
-        <div className="toast-bar">
-          {toasts.map((t) => (
-            <div key={t.id} className={`toast ${t.tipo}`}>
-              <span style={{ fontSize: 13 }}>{t.msg}</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {t.tipo === 'erro' ? (
-                  <button type="button" className="btn btn-sm" onClick={() => setLogsAberto(true)}>
-                    Ver log
-                  </button>
-                ) : null}
-                <button type="button" className="btn-icon" style={{ minWidth: 24, minHeight: 24 }} onClick={() => setToasts((c) => c.filter((x) => x.id !== t.id))}>
-                  ×
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {logs}
+      {avisosFlutuantes}
     </div>
   );
 }

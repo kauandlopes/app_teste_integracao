@@ -1,6 +1,6 @@
 import { db, obterConfig, atualizarConfig } from './db.js';
 
-const MAX_LOGS = 1000;
+const MAX_LOGS = 1500;
 
 export function registrarLog(entrada: {
   metodo: string;
@@ -8,7 +8,7 @@ export function registrarLog(entrada: {
   status: number;
   ms: number;
   erroResumo?: string;
-  headers?: Record<string, string>;
+  headers?: Record<string, unknown>;
   reqBody?: string;
   resBody?: string;
   curl?: string;
@@ -28,57 +28,56 @@ export function registrarLog(entrada: {
     entrada.resBody ?? '',
     entrada.curl ?? '',
   );
-  // Retem ate MAX_LOGS registros mais recentes
-  db.prepare(`
-    DELETE FROM logs_http WHERE id NOT IN (SELECT id FROM logs_http ORDER BY id DESC LIMIT ?)
-  `).run(MAX_LOGS);
+  // Retem apenas os MAX_LOGS registros mais recentes
+  db.prepare('DELETE FROM logs_http WHERE id <= (SELECT MAX(id) FROM logs_http) - ?').run(MAX_LOGS);
 }
 
-function mascararHeaders(headers: Record<string, string>): Record<string, string> {
-  const saida: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === 'authorization' && typeof v === 'string') {
-      const m = /^(Bearer\s+)(\S+)$/i.exec(v.trim());
-      if (m && m[2].length > 14) {
-        saida[k] = `${m[1]}${m[2].slice(0, 10)}...${m[2].slice(-4)}`;
-        continue;
-      }
-    }
-    saida[k] = v;
-  }
-  return saida;
-}
-
+/** cURL completo, com o token: ferramenta de homologacao, o comando copiado precisa funcionar. */
 function montarCurl(metodo: string, url: string, headers: Record<string, string>, corpo?: string): string {
-  const seguros = mascararHeaders(headers);
   const partes = [`curl -X ${metodo} '${url}'`];
-  for (const [k, v] of Object.entries(seguros)) {
-    partes.push(`  -H '${k}: ${v}'`);
-  }
-  if (corpo !== undefined) {
-    partes.push(`  -d '${corpo.replace(/'/g, "'\\''")}'`);
-  }
+  for (const [k, v] of Object.entries(headers)) partes.push(`  -H '${k}: ${v}'`);
+  if (corpo !== undefined) partes.push(`  -d '${corpo.replace(/'/g, "'\\''")}'`);
   return partes.join(' \\\n');
 }
 
-export async function hubFetch<T = any>(
-  caminho: string,
-  opcoes: {
-    metodo?: string;
-    tokenTipo?: 'integrador' | 'conexao' | 'nenhum';
-    tokenExplicito?: string;
-    baseExplicita?: string;
-    body?: unknown;
-    headers?: Record<string, string>;
-  } = {},
-): Promise<{ ok: boolean; status: number; json: T | null; text: string }> {
+/**
+ * Le JSON sem arredondar inteiros com 16+ digitos (order_id e apply_id da 99Food sao 64 bits):
+ * eles viram texto. Strings sao casadas primeiro e ficam intactas.
+ */
+export function lerJson<T = any>(texto: string): T | null {
+  if (!texto) return null;
+  try {
+    return JSON.parse(texto.replace(/"(?:[^"\\]|\\.)*"|-?\d{16,}(?![\d.eE])/g, (t) => (t.startsWith('"') ? t : `"${t}"`))) as T;
+  } catch {
+    return null;
+  }
+}
+
+export interface RespostaHub<T = any> {
+  ok: boolean;
+  status: number;
+  json: T | null;
+  text: string;
+}
+
+export interface OpcoesHub {
+  metodo?: string;
+  tokenTipo?: 'integrador' | 'conexao' | 'nenhum';
+  tokenExplicito?: string;
+  baseExplicita?: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  /** Consultas de rotina (ex.: PULL sem eventos) nao enchem o historico: so sao gravadas se falharem. */
+  silenciarSucesso?: (json: unknown) => boolean;
+}
+
+export async function hubFetch<T = any>(caminho: string, opcoes: OpcoesHub = {}): Promise<RespostaHub<T>> {
   const cfg = obterConfig();
   const base = (opcoes.baseExplicita ?? cfg.baseUrl).replace(/\/$/, '');
   const url = `${base}${caminho.startsWith('/') ? caminho : `/${caminho}`}`;
   const metodo = (opcoes.metodo ?? 'GET').toUpperCase();
-  const token =
-    opcoes.tokenExplicito ??
-    (opcoes.tokenTipo === 'integrador' ? cfg.tokenIntegracao : opcoes.tokenTipo === 'nenhum' ? '' : cfg.tokenConexao);
+  const token = opcoes.tokenExplicito ?? (opcoes.tokenTipo === 'integrador' ? cfg.tokenIntegracao : opcoes.tokenTipo === 'nenhum' ? '' : cfg.tokenConexao);
 
   const headers: Record<string, string> = { ...(opcoes.headers ?? {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -88,264 +87,53 @@ export async function hubFetch<T = any>(
   const inicio = Date.now();
   let status = 0;
   let text = '';
-  let json: T | null = null;
   try {
-    const res = await fetch(url, {
-      method: metodo,
-      headers,
-      body: reqBody,
-      signal: AbortSignal.timeout(30_000),
-    });
+    const res = await fetch(url, { method: metodo, headers, body: reqBody, signal: AbortSignal.timeout(opcoes.timeoutMs ?? 30_000) });
     status = res.status;
     text = await res.text();
-    try {
-      json = text ? (JSON.parse(text) as T) : null;
-    } catch {
-      json = null;
-    }
   } catch (err) {
     status = 0;
-    text = err instanceof Error ? err.message : 'Falha de conexao com o Hub';
+    text = err instanceof Error ? err.message : 'Falha de conexão com o Hub';
+  }
+  const json = lerJson<T>(text);
+  const ok = status >= 200 && status < 300;
+
+  if (!(ok && opcoes.silenciarSucesso?.(json))) {
+    const j = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
+    registrarLog({
+      metodo,
+      url,
+      status,
+      ms: Date.now() - inicio,
+      erroResumo: ok ? '' : [j?.codigo, j?.erro ?? j?.message].filter(Boolean).join(' — ') || `HTTP ${status || 'REDE'}`,
+      headers,
+      reqBody,
+      resBody: json ? JSON.stringify(json, null, 2) : text,
+      curl: montarCurl(metodo, url, headers, reqBody),
+    });
   }
 
-  const ms = Date.now() - inicio;
-  const jObj = json && typeof json === 'object' ? (json as Record<string, unknown>) : null;
-  const erroResumo =
-    status === 0 || status >= 400
-      ? [jObj?.codigo, jObj?.erro ?? jObj?.message].filter(Boolean).join(' — ') || `HTTP ${status || 'REDE'}`
-      : '';
-
-  registrarLog({
-    metodo,
-    url,
-    status,
-    ms,
-    erroResumo,
-    headers: mascararHeaders(headers),
-    reqBody,
-    resBody: json ? JSON.stringify(json, null, 2) : text,
-    curl: montarCurl(metodo, url, headers, reqBody),
-  });
-
-  return { ok: status >= 200 && status < 300, status, json, text };
+  return { ok, status, json, text };
 }
 
-export function mapearEtapaParaKanban(etapa: string | null | undefined, atual?: string): string {
-  const e = (etapa ?? '').toUpperCase();
-  if (e === 'PLACED' || e === 'PLC' || e === 'ORDERNEW' || e === 'RECEBIDO') return 'NOVO';
-  if (e === 'CONFIRMED' || e === 'CFM' || e === 'PREPARATION_STARTED' || e === 'ORDERCONFIRM' || e === 'CONFIRMADO' || e === 'EM_PREPARO') return 'PREPARO';
-  if (e === 'READY_TO_PICKUP' || e === 'RTP' || e === 'ORDERREADY' || e === 'PRONTO') return 'PRONTO';
-  if (e === 'DISPATCHED' || e === 'DSP' || e === 'DELIVERING' || e === 'DESPACHADO') return 'ENTREGA';
-  if (e === 'CONCLUDED' || e === 'CON' || e === 'ORDERFINISH' || e === 'DELIVERED' || e === 'CONCLUIDO') return 'CONCLUIDO';
-  if (e === 'CANCELLED' || e === 'CAN' || e === 'ORDERCANCEL' || e === 'CANCELADO') return 'CANCELADO';
-  return atual || 'NOVO';
+/** Mensagem legivel de uma resposta de erro do Hub, com o codigo para consulta. */
+export function mensagemDoHub(r: RespostaHub<any>): string {
+  const j = r.json as any;
+  const texto = j?.erro ?? j?.message ?? j?.mensagem ?? (r.status === 0 ? `Sem resposta do Hub: ${r.text}` : `Hub respondeu HTTP ${r.status}`);
+  const detalhe = j?.detalhes?.resposta?.errmsg ?? j?.detalhes?.resposta?.error?.message ?? j?.detalhes?.motivo;
+  return `${j?.codigo ? `[${j.codigo}] ` : ''}${texto}${detalhe ? ` (${detalhe})` : ''}`;
 }
 
-export function upsertPedidoDoDetalhe(pedidoId: string, plataforma: string, etapa: string, detalhe: any, eventoExtra?: any) {
-  const existente = db.prepare('SELECT id, statusKanban, detalheJson, eventosJson FROM pedidos WHERE id = ?').get(pedidoId) as
-    | { id: string; statusKanban: string; detalheJson: string; eventosJson: string }
-    | undefined;
-  const eventos = existente ? (JSON.parse(existente.eventosJson) as unknown[]) : [];
-  if (eventoExtra) eventos.unshift(eventoExtra);
-  const detalheAntigo = existente ? JSON.parse(existente.detalheJson || '{}') : {};
-
-  // Detecta formato unificado vindo de ?formato=unificado ou de avaliacao/v2
-  const ehUnificado = Boolean(detalhe && typeof detalhe === 'object' && detalhe.valores && Array.isArray(detalhe.itens));
-  const etapaUpper = (etapa ?? '').toUpperCase();
-  const ehSolicitacaoCancelamento =
-    etapaUpper === 'CANCELLATION_REQUESTED' ||
-    etapaUpper === 'CAR' ||
-    etapaUpper === 'HANDSHAKE_DISPUTE' ||
-    etapaUpper === 'HSD' ||
-    etapaUpper === 'ORDERCANCELAPPLY' ||
-    etapaUpper === 'ORDERREFUNDAPPLY';
-  const ehCancelado = etapaUpper === 'CANCELLED' || etapaUpper === 'CAN' || etapaUpper === 'ORDERCANCEL' || etapaUpper === 'CANCELADO';
-
-  let codigoCurto: string;
-  let clienteNome: string;
-  let clienteTelefone: string;
-  let endereco: string;
-  let totalReal: number;
-  let itensNormalizados: any[];
-  let statusKanban: string;
-  let canalFinal = plataforma;
-
-  const kanbanDaEtapa = mapearEtapaParaKanban(etapa, existente?.statusKanban);
-
-  if (ehUnificado) {
-    canalFinal = String(detalhe.canal || plataforma);
-    codigoCurto = String(detalhe.codigoExibicao ?? pedidoId.slice(0, 6));
-    clienteNome = String(detalhe.cliente?.nome ?? 'Cliente');
-    clienteTelefone = String(detalhe.cliente?.telefone ?? '');
-    endereco = detalhe.enderecoEntrega?.formatado
-      ? String(detalhe.enderecoEntrega.formatado)
-      : String(detalhe.tipoEntrega ?? 'RETIRADA');
-    totalReal = Number(detalhe.valores?.total ?? 0);
-    itensNormalizados = (detalhe.itens ?? []).map((it: any) => ({
-      name: it.nome,
-      quantity: it.quantidade,
-      unitPrice: it.precoUnitario,
-      totalPrice: it.precoTotal,
-      observations: it.observacao,
-      externalCode: it.codigoExterno,
-      options: (it.modificadores ?? []).map((m: any) => ({
-        name: m.nome,
-        quantity: m.quantidade,
-        price: m.precoUnitario,
-        externalCode: m.codigoExterno,
-      })),
-    }));
-    // Nunca rebaixa um webhook de etapa real (ex: CANCELLED ou CONFIRMED) para NOVO so porque o adapter do detalhe devolveu RECEBIDO
-    statusKanban = ehCancelado
-      ? 'CANCELADO'
-      : detalhe.avaliacaoSimulada && detalhe.statusKanban
-        ? detalhe.statusKanban
-        : etapaUpper && etapaUpper !== 'PLACED' && etapaUpper !== 'PLC' && etapaUpper !== 'ORDERNEW'
-          ? kanbanDaEtapa
-          : detalhe.statusKanban || kanbanDaEtapa;
-  } else {
-    codigoCurto = String(detalhe?.displayId ?? detalhe?.order_index ?? pedidoId.slice(0, 6));
-    clienteNome = String(detalhe?.customer?.name ?? detalhe?.recipient?.name ?? 'Cliente Marketplace');
-    clienteTelefone = String(detalhe?.customer?.phone?.number ?? detalhe?.recipient?.phone ?? '');
-    const endObj = detalhe?.delivery?.deliveryAddress;
-    endereco = endObj
-      ? [endObj.streetName, endObj.streetNumber, endObj.neighborhood, endObj.city].filter(Boolean).join(', ')
-      : String(detalhe?.orderType ?? 'RETIRADA');
-    totalReal = Number(detalhe?.total?.orderAmount ?? (detalhe?.price?.order_price ? Number(detalhe.price.order_price) / 100 : 0));
-    itensNormalizados = detalhe?.items ?? [];
-    statusKanban = kanbanDaEtapa;
-  }
-
-  // Protecao contra corrida de webhooks fora de ordem (ex: DISPATCHED chegar ms depois de CONCLUDED)
-  const ordemKanban: Record<string, number> = { NOVO: 1, PREPARO: 2, PRONTO: 3, ENTREGA: 4, CONCLUIDO: 5, CANCELADO: 6 };
-  if (!ehCancelado && existente?.statusKanban) {
-    const pesoAtual = ordemKanban[existente.statusKanban] ?? 0;
-    const pesoNovo = ordemKanban[statusKanban] ?? 0;
-    if (pesoAtual >= 5 || pesoAtual > pesoNovo) {
-      statusKanban = existente.statusKanban;
-    }
-  }
-
-  const detalheFinal: Record<string, unknown> = {
-    ...detalheAntigo,
-    ...(detalhe ?? {}),
-    ...(ehSolicitacaoCancelamento
-      ? {
-        solicitacaoCancelamento: {
-          pendente: true,
-          etapa: etapaUpper,
-          disputeId: eventoExtra?.disputeId ?? null,
-          motivo: eventoExtra?.motivo ?? 'Cliente solicitou cancelamento pela plataforma',
-          recebidoEm: new Date().toISOString(),
-        },
-      }
-      : ehCancelado
-        ? {
-          solicitacaoCancelamento: null,
-          motivoCancelamento: eventoExtra?.motivo ?? detalhe?.motivoCancelamento ?? detalheAntigo?.motivoCancelamento ?? 'Pedido cancelado pela plataforma',
-        }
-        : {}),
-  };
-
-  const itensJson = JSON.stringify(itensNormalizados);
-  const agora = new Date().toISOString();
-
-  db.prepare(`
-    INSERT INTO pedidos (id, plataforma, codigoCurto, clienteNome, clienteTelefone, endereco, totalReal, statusKanban, etapaPlataforma, testeLocal, itensJson, detalheJson, eventosJson, criadoEm, atualizadoEm)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      plataforma = excluded.plataforma,
-      codigoCurto = excluded.codigoCurto,
-      clienteNome = excluded.clienteNome,
-      clienteTelefone = excluded.clienteTelefone,
-      endereco = excluded.endereco,
-      totalReal = excluded.totalReal,
-      statusKanban = excluded.statusKanban,
-      etapaPlataforma = excluded.etapaPlataforma,
-      itensJson = excluded.itensJson,
-      detalheJson = excluded.detalheJson,
-      eventosJson = excluded.eventosJson,
-      atualizadoEm = excluded.atualizadoEm
-  `).run(
-    pedidoId,
-    canalFinal,
-    codigoCurto,
-    clienteNome,
-    clienteTelefone,
-    endereco,
-    totalReal,
-    statusKanban,
-    etapa,
-    itensJson,
-    JSON.stringify(detalheFinal),
-    JSON.stringify(eventos.slice(0, 30)),
-    agora,
-    agora,
-  );
-}
-
-let syncRodando = false;
-
-/** Worker leve: busca eventos PULL pendentes no Hub, importa detalhes unificados para SQLite e confirma cursor. */
-export async function sincronizarComHub(): Promise<{ novosEventos: number }> {
-  if (syncRodando) return { novosEventos: 0 };
+/** Atualiza estado, transporte e lojas vinculadas a partir do Hub. */
+export async function atualizarEstadoConexao() {
   const cfg = obterConfig();
-  if (!cfg.tokenConexao || cfg.transporte === 'PUSH') return { novosEventos: 0 };
-
-  syncRodando = true;
-  try {
-    const res = await hubFetch<{ eventos: Array<{ seq: number; plataforma: string; pedido: string | null; tipo: string; recebidoEm: string; teste: boolean; corpo: string }> }>(
-      '/hub/v1/eventos?espera=0&limite=50',
-      { tokenTipo: 'conexao' },
-    );
-    if (!res.ok || !res.json?.eventos?.length) {
-      return { novosEventos: 0 };
-    }
-
-    let maxSeq = 0;
-    for (const ev of res.json.eventos) {
-      if (ev.seq > maxSeq) maxSeq = ev.seq;
-      if (ev.pedido && !ev.teste) {
-        let corpoJson: any = null;
-        try {
-          corpoJson = ev.corpo ? JSON.parse(ev.corpo) : null;
-        } catch {
-          corpoJson = null;
-        }
-        const detalhe =
-          corpoJson?.pedido ??
-          (await hubFetch(`/hub/v1/conexao/pedidos/${encodeURIComponent(ev.pedido)}?plataforma=${ev.plataforma}&formato=unificado`, {
-            tokenTipo: 'conexao',
-          })).json ??
-          {};
-        upsertPedidoDoDetalhe(ev.pedido, ev.plataforma, ev.tipo, detalhe, {
-          seq: ev.seq,
-          tipo: ev.tipo,
-          recebidoEm: ev.recebidoEm,
-          corpo: ev.corpo,
-        });
-      }
-    }
-
-    if (maxSeq > 0) {
-      await hubFetch('/hub/v1/eventos/confirmar', {
-        metodo: 'POST',
-        tokenTipo: 'conexao',
-        body: { ate: maxSeq },
-      });
-    }
-
-    // Atualiza estado das lojas vinculadas
-    const est = await hubFetch<any>('/hub/v1/conexao', { tokenTipo: 'conexao' });
-    if (est.ok && est.json) {
-      atualizarConfig({
-        estadoConexao: est.json.estado ?? cfg.estadoConexao,
-        lojasVinculadasJson: JSON.stringify(est.json.lojas ?? []),
-      });
-    }
-
-    return { novosEventos: res.json.eventos.length };
-  } finally {
-    syncRodando = false;
+  if (!cfg.tokenConexao) return;
+  const r = await hubFetch<any>('/hub/v1/conexao', { silenciarSucesso: () => true });
+  if (r.ok && r.json) {
+    atualizarConfig({
+      estadoConexao: r.json.estado ?? cfg.estadoConexao,
+      lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []),
+      ...(r.json.transporte?.modo ? { transporte: r.json.transporte.modo } : {}),
+    });
   }
 }

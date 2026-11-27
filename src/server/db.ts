@@ -46,30 +46,61 @@ db.exec(`
     atualizadoEm TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS catalogo_categorias (
+  -- Caixa de entrada duravel: o evento e gravado aqui ANTES de responder 200 ao Hub ou confirmar o cursor PULL
+  CREATE TABLE IF NOT EXISTS eventos (
     id TEXT PRIMARY KEY,
+    conexaoId TEXT NOT NULL DEFAULT '',
+    seq INTEGER,
+    origem TEXT NOT NULL,
     plataforma TEXT NOT NULL,
-    nome TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'AVAILABLE',
-    ordem INTEGER NOT NULL DEFAULT 0,
-    payloadJson TEXT NOT NULL DEFAULT '{}',
-    atualizadoEm TEXT NOT NULL DEFAULT (datetime('now'))
+    pedidoId TEXT NOT NULL DEFAULT '',
+    tipo TEXT NOT NULL,
+    corpo TEXT NOT NULL DEFAULT '',
+    ocorridoEm TEXT NOT NULL,
+    recebidoEm TEXT NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'PENDENTE',
+    tentativas INTEGER NOT NULL DEFAULT 0,
+    proximaEm INTEGER NOT NULL DEFAULT 0,
+    erro TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_eventos_fila ON eventos(estado, proximaEm);
+  CREATE INDEX IF NOT EXISTS idx_eventos_seq ON eventos(conexaoId, seq);
+
+  CREATE TABLE IF NOT EXISTS ajustes (chave TEXT PRIMARY KEY, valor TEXT NOT NULL);
+
+  -- Cardapio do ERP (fonte da verdade) e fila de publicacao nos canais
+  CREATE TABLE IF NOT EXISTS produtos (
+    codigo TEXT PRIMARY KEY,
+    definicaoJson TEXT NOT NULL,
+    canaisJson TEXT NOT NULL DEFAULT '{}',
+    estado TEXT NOT NULL DEFAULT 'NA_FILA',
+    erro TEXT NOT NULL DEFAULT '',
+    atualizadoEm TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS fila_catalogo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT NOT NULL,
+    operacao TEXT NOT NULL,
+    opcao TEXT NOT NULL DEFAULT '',
+    dadosJson TEXT NOT NULL DEFAULT '{}',
+    estado TEXT NOT NULL DEFAULT 'PENDENTE',
+    tentativas INTEGER NOT NULL DEFAULT 0,
+    proximaEm INTEGER NOT NULL DEFAULT 0,
+    erro TEXT NOT NULL DEFAULT ''
   );
 
-  CREATE TABLE IF NOT EXISTS catalogo_itens (
-    id TEXT PRIMARY KEY,
-    categoriaId TEXT NOT NULL,
+  -- Copia local do que esta nas plataformas. Chave composta: ids se repetem entre iFood e 99Food
+  CREATE TABLE IF NOT EXISTS espelho_categorias (
     plataforma TEXT NOT NULL,
-    nome TEXT NOT NULL,
-    descricao TEXT NOT NULL DEFAULT '',
-    sku TEXT NOT NULL DEFAULT '',
-    preco REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'AVAILABLE',
+    id TEXT NOT NULL,
     ordem INTEGER NOT NULL DEFAULT 0,
-    gruposJson TEXT NOT NULL DEFAULT '[]',
-    payloadJson TEXT NOT NULL DEFAULT '{}',
-    atualizadoEm TEXT NOT NULL DEFAULT (datetime('now'))
+    json TEXT NOT NULL,
+    atualizadoEm TEXT NOT NULL,
+    PRIMARY KEY (plataforma, id)
   );
+  -- Cache antigo do cardapio (chave sem plataforma), substituido pelo espelho acima
+  DROP TABLE IF EXISTS catalogo_itens;
+  DROP TABLE IF EXISTS catalogo_categorias;
 
   CREATE TABLE IF NOT EXISTS logs_http (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +119,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_logs_http_status ON logs_http(status);
   CREATE INDEX IF NOT EXISTS idx_pedidos_kanban ON pedidos(statusKanban, atualizadoEm DESC);
 `);
+
+/** Colunas acrescentadas depois da primeira versao: bancos antigos ganham sem perder dados. */
+function garantirColuna(tabela: string, coluna: string, definicao: string) {
+  const colunas = db.prepare(`PRAGMA table_info(${tabela})`).all() as Array<{ name: string }>;
+  if (!colunas.some((c) => c.name === coluna)) db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao}`);
+}
+garantirColuna('pedidos', 'modalidade', "TEXT NOT NULL DEFAULT 'ENTREGA_PROPRIA'");
+garantirColuna('pedidos', 'detalhePendente', 'INTEGER NOT NULL DEFAULT 1');
+garantirColuna('pedidos', 'estadoJson', "TEXT NOT NULL DEFAULT '{}'");
 
 export interface ConfigRow {
   id: number;
@@ -129,4 +169,13 @@ export function atualizarConfig(patch: Partial<Omit<ConfigRow, 'id' | 'atualizad
     WHERE id = 1
   `).run(prox);
   return obterConfig();
+}
+
+export function lerAjuste(chave: string, padrao: string): string {
+  const l = db.prepare('SELECT valor FROM ajustes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+  return l?.valor ?? padrao;
+}
+
+export function gravarAjuste(chave: string, valor: string) {
+  db.prepare('INSERT INTO ajustes (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor').run(chave, valor);
 }

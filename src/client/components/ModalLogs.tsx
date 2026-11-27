@@ -141,6 +141,12 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
                           <pre className="code-block">{formatarJson(l.reqBody)}</pre>
                         </div>
                       ) : null}
+                      {l.reqHeaders && l.reqHeaders !== '{}' ? (
+                        <div>
+                          <div className="field-label">Cabeçalhos</div>
+                          <pre className="code-block">{formatarJson(l.reqHeaders)}</pre>
+                        </div>
+                      ) : null}
                       <div>
                         <div className="field-label">Resposta Recebida (Response)</div>
                         <pre className="code-block">{formatarJson(l.resBody) || '(sem corpo)'}</pre>

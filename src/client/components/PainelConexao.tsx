@@ -170,12 +170,12 @@ export function PainelConexao({
                 aoClicar: () => setMostrarDetalhesTecnicos((v) => !v),
               },
               {
-                rotulo: 'Recuperar / regenerar token da conexão',
+                rotulo: 'Gerar novo token desta conexão (invalida o anterior)',
                 aoClicar: async () => {
                   try {
                     await erpApi.recuperarToken();
                     await aoAtualizarSessao();
-                    notificar('ok', 'Token da loja atualizado no SQLite.');
+                    notificar('ok', 'Novo token da loja gravado. O anterior deixou de valer.');
                   } catch (err) {
                     notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao recuperar token.');
                   }
