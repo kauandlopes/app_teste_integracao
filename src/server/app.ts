@@ -184,7 +184,8 @@ export function criarApp() {
         tokenTipo: 'conexao',
         body: { transporte: 'PUSH', url: webhookUrl },
       });
-      if (rw.ok && rw.json) {
+      if (!rw.ok) return res.status(rw.status || 400).json(rw.json ?? { erro: rw.text });
+      if (rw.json) {
         transporteAtual = rw.json.transporte?.modo ?? 'PUSH';
         if (rw.json.webhookSegredo) webhookSegredo = rw.json.webhookSegredo;
         atualizarConfig({ transporte: transporteAtual, webhookSegredo, estadoConexao: rw.json.estado ?? r.json.estado ?? '' });
@@ -195,7 +196,8 @@ export function criarApp() {
         tokenTipo: 'conexao',
         body: { transporte: 'PULL' },
       });
-      if (rw.ok && rw.json) {
+      if (!rw.ok) return res.status(rw.status || 400).json(rw.json ?? { erro: rw.text });
+      if (rw.json) {
         transporteAtual = 'PULL';
         atualizarConfig({ transporte: 'PULL', estadoConexao: rw.json.estado ?? r.json.estado ?? '' });
       }

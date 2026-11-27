@@ -111,8 +111,10 @@ async function req<T = any>(caminho: string, init?: RequestInit): Promise<T> {
     json = null;
   }
   if (!res.ok) {
-    const msg = json?.mensagem || json?.erro || json?.message || `HTTP ${res.status}`;
-    throw new ApiErro(res.status, msg, json ?? texto);
+    const baseMsg = json?.mensagem || json?.erro || json?.message || `HTTP ${res.status}`;
+    const codigo = json?.codigo ? `[${json.codigo}] ` : '';
+    const motivo = json?.detalhes?.motivo ? ` (${json.detalhes.motivo})` : '';
+    throw new ApiErro(res.status, `${codigo}${baseMsg}${motivo}`, json ?? texto);
   }
   return json as T;
 }
