@@ -307,7 +307,7 @@ export function PainelConexao({
 
       {modalPlat ? (
         <div className="modal-backdrop" onClick={() => setModalPlat(null)}>
-          <div className="modal" style={{ maxWidth: 520, width: '92%' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-panel" style={{ maxWidth: 520, width: '92%' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <div>
                 <h3 style={{ margin: 0, fontSize: 16 }}>
