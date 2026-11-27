@@ -1,7 +1,8 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { atualizarConfig, db, obterConfig } from '../db.js';
-import { atualizarEstadoConexao, hubFetch, mensagemDoHub, RespostaHub } from '../hubClient.js';
+import { atualizarEstadoConexao, hubFetch, lerJson, mensagemDoHub, RespostaHub } from '../hubClient.js';
 import { limparEspelho } from '../catalogo/espelho.js';
+import { conexaoEncerrada, descartarConexaoAnterior, semLojaAtiva, tokenRecusado } from './estado.js';
 
 export const WEBHOOK_PADRAO = 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
 const BASE_PADRAO = 'https://delivery.targetx.com.br/api/v1';
@@ -36,6 +37,7 @@ export function rotasConexao(): Router {
       nomeLoja: c.nomeLoja,
       conexaoId: c.conexaoId,
       temTokenConexao: !!c.tokenConexao,
+      conexaoEncerrada: conexaoEncerrada(),
       transporte: c.transporte,
       webhookUrl: WEBHOOK_PADRAO,
       temWebhookSegredo: !!c.webhookSegredo,
@@ -57,13 +59,15 @@ export function rotasConexao(): Router {
     const cur = obterConfig();
     const outroIntegrador = !!cur.integradorCodigo && cur.integradorCodigo !== r.json.integrador.codigo;
     atualizarConfig({ baseUrl, tokenIntegracao, integradorCodigo: r.json.integrador.codigo, ...(outroIntegrador ? SEM_CONEXAO : {}) });
+    if (outroIntegrador) descartarConexaoAnterior('');
     res.json({ ok: true, integrador: r.json.integrador, conectado: !!obterConfig().tokenConexao });
   });
 
   api.post('/sair', (req, res) => {
     if (req.query.limparDados === 'true') {
       atualizarConfig({ tokenIntegracao: '', integradorCodigo: '', ...SEM_CONEXAO });
-      db.exec('DELETE FROM pedidos; DELETE FROM eventos; DELETE FROM espelho_categorias;');
+      db.exec('DELETE FROM pedidos; DELETE FROM eventos;');
+      descartarConexaoAnterior('');
     } else {
       // Mantem a conexao: pedidos continuam chegando e entrar de novo nao troca nenhum token
       atualizarConfig({ tokenIntegracao: '' });
@@ -85,22 +89,28 @@ export function rotasConexao(): Router {
     });
     if (!r.ok || !r.json) return falha(res, r);
 
+    const mesma = obterConfig().conexaoId === r.json.conexaoId;
+    // Antes de reaproveitar o token salvo, confere se ele ainda vale: se nao, este mesmo clique gera outro
+    if (mesma && !r.json.credenciais?.token) await atualizarEstadoConexao();
     const cur = obterConfig();
-    const mesma = cur.conexaoId === r.json.conexaoId;
-    let tokenConexao: string = r.json.credenciais?.token || (mesma ? cur.tokenConexao : '');
+    const valeOSalvo = mesma && !!cur.tokenConexao && !conexaoEncerrada();
+    let tokenConexao: string = [r.json.credenciais?.token, valeOSalvo ? cur.tokenConexao : ''].find((t) => t && !tokenRecusado(t)) ?? '';
     if (!tokenConexao) {
       const rec = await gerarTokenDaConexao(r.json.conexaoId);
       if (!rec.ok || !rec.json?.token) return falha(res, rec);
       tokenConexao = rec.json.token;
     }
-    if (!mesma) limparEspelho();
+    // Na mesma conexao vale o segredo salvo: o Hub pode devolver o da criacao, ja trocado depois
+    const manterSegredo = valeOSalvo && !!cur.webhookSegredo;
+    // Fora isso, so o segredo de uma conexao recem-criada (201) e certamente o atual
+    let segredoAtual = manterSegredo || (r.status === 201 && !!r.json.credenciais?.webhookSegredo);
+    if (cur.conexaoId && !mesma) descartarConexaoAnterior(r.json.conexaoId);
     atualizarConfig({
       cnpj: r.json.cnpj,
       nomeLoja: r.json.nome ?? nome,
       conexaoId: r.json.conexaoId,
       tokenConexao,
-      // Na mesma conexao vale o segredo salvo: o Hub pode devolver o da criacao, ja trocado depois
-      webhookSegredo: (mesma && cur.webhookSegredo) || r.json.credenciais?.webhookSegredo || '',
+      webhookSegredo: manterSegredo ? cur.webhookSegredo : r.json.credenciais?.webhookSegredo || (mesma ? cur.webhookSegredo : ''),
       transporte: r.json.transporte?.modo ?? transporte,
       estadoConexao: r.json.estado ?? '',
       lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []),
@@ -111,11 +121,13 @@ export function rotasConexao(): Router {
     if (obterConfig().transporte !== transporte || (transporte === 'PUSH' && urlAtual !== webhookUrl)) {
       const rw = await hubFetch<any>('/hub/v1/conexao/webhook', { metodo: 'PUT', body: transporte === 'PUSH' ? { transporte, url: webhookUrl } : { transporte } });
       if (!rw.ok) return falha(res, rw);
+      if (rw.json?.webhookSegredo) segredoAtual = true;
       atualizarConfig({ transporte: rw.json?.transporte?.modo ?? transporte, ...(rw.json?.webhookSegredo ? { webhookSegredo: rw.json.webhookSegredo } : {}) });
     }
-    if (transporte === 'PUSH' && !obterConfig().webhookSegredo) {
+    if (transporte === 'PUSH' && (!segredoAtual || !obterConfig().webhookSegredo)) {
       const rot = await hubFetch<{ webhookSegredo: string }>('/hub/v1/conexao/webhook/segredo/rotacionar', { metodo: 'POST' });
-      if (rot.ok && rot.json?.webhookSegredo) atualizarConfig({ webhookSegredo: rot.json.webhookSegredo });
+      if (!rot.ok || !rot.json?.webhookSegredo) return falha(res, rot);
+      atualizarConfig({ webhookSegredo: rot.json.webhookSegredo });
     }
 
     const final = obterConfig();
@@ -129,6 +141,7 @@ export function rotasConexao(): Router {
     const r = await gerarTokenDaConexao(conexaoId);
     if (!r.ok || !r.json?.token) return falha(res, r);
     atualizarConfig({ tokenConexao: r.json.token });
+    await atualizarEstadoConexao();
     res.json(r.json);
   });
 
@@ -159,14 +172,18 @@ export function rotasConexao(): Router {
     repassar(res, await hubFetch(`/hub/v1/conexao/lojas-disponiveis${plat}`, { timeoutMs: 65_000 }));
   });
 
-  const mudarLoja = (caminho: string) => async (req: { body?: any }, res: Response) => {
-    const { plataforma, loja } = req.body ?? {};
+  const mudarLoja = (caminho: string) => async (req: Request & { rawBody?: Buffer }, res: Response) => {
+    // Corpo original: id de loja com 19 digitos enviado como numero seria arredondado pelo JSON.parse do Express
+    const corpo = lerJson<{ plataforma?: unknown; loja?: unknown }>(req.rawBody?.toString('utf8') ?? '');
+    const plataforma = String(corpo?.plataforma ?? '');
+    const loja = String(corpo?.loja ?? '').trim();
+    if (!plataforma || !loja) return res.status(400).json({ erro: 'Escolha a plataforma e a loja.' });
     const r = await hubFetch<any>(caminho, { metodo: 'POST', body: { plataforma, loja }, timeoutMs: 65_000 });
     if (r.ok && r.json) {
       atualizarConfig({ estadoConexao: r.json.estado ?? '', lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []) });
       // O cardapio copiado era da loja anterior daquela plataforma. Os produtos cadastrados no ERP ficam
-      limparEspelho(String(plataforma));
-    }
+      limparEspelho(plataforma);
+    } else if ((r.json as any)?.codigo === 'LOJA_NAO_ENCONTRADA') await atualizarEstadoConexao();
     repassar(res, r);
   };
   api.post('/lojas/vincular', mudarLoja('/hub/v1/conexao/lojas'));
@@ -176,7 +193,10 @@ export function rotasConexao(): Router {
     res.json({ ok: true });
   });
 
-  api.get('/loja/status', async (_req, res) => repassar(res, await hubFetch('/hub/v1/conexao/loja/status', { silenciarSucesso: () => true })));
+  api.get('/loja/status', async (_req, res) => {
+    if (semLojaAtiva()) return res.json({});
+    repassar(res, await hubFetch('/hub/v1/conexao/loja/status', { silenciarSucesso: () => true }));
+  });
 
   api.post('/loja/interrupcoes', async (req, res) => {
     const minutos = Math.max(1, Number(req.body?.durationMinutes ?? 30));

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { db, lerAjuste, obterConfig } from '../db.js';
 import { atualizarEstadoConexao, hubFetch, lerJson, mensagemDoHub, registrarLog } from '../hubClient.js';
 import { notificar } from '../stream.js';
+import { conexaoEncerrada, conexaoPronta } from '../conexao/estado.js';
 import { detalheValido, extrasDe } from './detalhe.js';
 import { Efeito, interpretarEvento } from './eventos.js';
 import { avancarStatus, ehSimulado } from './regras.js';
@@ -75,6 +76,8 @@ export function receberEvento(ev: EventoRecebido): boolean {
 const emAndamento = new Map<string, Promise<void>>();
 
 export function processarFila(): Promise<void> {
+  // Sem token valido o detalhe nao pode ser lido: os eventos esperam sem gastar tentativa
+  if (conexaoEncerrada()) return Promise.resolve();
   const pendentes = db.prepare("SELECT DISTINCT pedidoId FROM eventos WHERE estado = 'PENDENTE' AND proximaEm <= ? LIMIT 100").all(Date.now()) as Array<{ pedidoId: string }>;
   for (const { pedidoId } of pendentes) {
     if (emAndamento.has(pedidoId)) continue;
@@ -97,6 +100,7 @@ async function processarPedido(pedidoId: string) {
       // So conclui se o corpo continua o mesmo: um webhook que chegou durante o processamento volta para a fila
       db.prepare("UPDATE eventos SET estado = 'PROCESSADO', erro = '' WHERE id = ? AND corpo = ?").run(ev.id, ev.corpo);
     } catch (err) {
+      if (conexaoEncerrada()) return;
       const tentativas = ev.tentativas + 1;
       const erro = err instanceof Error ? err.message : String(err);
       const espera = ESPERAS_S[Math.min(tentativas - 1, ESPERAS_S.length - 1)];
@@ -412,12 +416,14 @@ async function iniciarPreparoDoAceiteAutomatico(pedidoId: string) {
 
 /** Pedido agendado do iFood: o preparo comeca no horario que a plataforma informou. */
 export async function iniciarAgendados() {
+  if (!conexaoPronta()) return;
   const linhas = db.prepare("SELECT id FROM pedidos WHERE plataforma = 'IFOOD' AND statusKanban = 'PREPARO'").all() as Array<{ id: string }>;
   for (const { id } of linhas) {
     const p = obterPedido(id)!;
     const inicio = extrasDe(p.plataforma, p.detalhe).agendamento?.inicioPreparo;
     if (!inicio || p.estado.preparoIniciado || p.estado.agendamentoRecusado || new Date(inicio).getTime() > Date.now()) continue;
     await executarAcao(id, 'startPreparation').catch((err) => {
+      if (conexaoEncerrada()) return;
       // Recusa definitiva nao se repete a cada ciclo
       if (err instanceof ErroDeAcao && err.status < 500) {
         const recusado = obterPedido(id)!;
@@ -446,7 +452,7 @@ let puxando = false;
 
 export async function puxarEventos(): Promise<number> {
   const cfg = obterConfig();
-  if (puxando || !cfg.tokenConexao || cfg.transporte === 'PUSH') return 0;
+  if (puxando || !conexaoPronta() || cfg.transporte === 'PUSH') return 0;
   puxando = true;
   let total = 0;
   try {
@@ -484,7 +490,7 @@ let reconciliando = false;
 /** Rede de seguranca para PUSH e PULL: compara a lista de pedidos do Hub com o que o ERP recebeu. */
 export async function reconciliar(): Promise<number> {
   const cfg = obterConfig();
-  if (reconciliando || !cfg.tokenConexao) return 0;
+  if (reconciliando || !conexaoPronta()) return 0;
   reconciliando = true;
   let novos = 0;
   try {

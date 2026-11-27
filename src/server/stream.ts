@@ -18,7 +18,7 @@ export function conectarStream(req: Request, res: Response) {
   });
 }
 
-export function notificar(evento: 'pedidos' | 'catalogo', dados: Record<string, unknown> = {}) {
+export function notificar(evento: 'pedidos' | 'catalogo' | 'conexao', dados: Record<string, unknown> = {}) {
   const texto = `event: ${evento}\ndata: ${JSON.stringify(dados)}\n\n`;
   for (const c of clientes) c.write(texto);
 }

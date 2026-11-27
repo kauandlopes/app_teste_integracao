@@ -1,4 +1,9 @@
 import { db, obterConfig, atualizarConfig } from './db.js';
+import { conexaoEncerrada, conexaoPronta, encerrarConexao } from './conexao/estado.js';
+import { lerJson } from '../shared/json.js';
+import { mensagemDoHub } from './hubErros.js';
+
+export { lerJson, mensagemDoHub };
 
 const MAX_LOGS = 1500;
 
@@ -40,25 +45,18 @@ function montarCurl(metodo: string, url: string, headers: Record<string, string>
   return partes.join(' \\\n');
 }
 
-/**
- * Le JSON sem arredondar inteiros com 16+ digitos (order_id e apply_id da 99Food sao 64 bits):
- * eles viram texto. Strings sao casadas primeiro e ficam intactas.
- */
-export function lerJson<T = any>(texto: string): T | null {
-  if (!texto) return null;
-  try {
-    return JSON.parse(texto.replace(/"(?:[^"\\]|\\.)*"|-?\d{16,}(?![\d.eE])/g, (t) => (t.startsWith('"') ? t : `"${t}"`))) as T;
-  } catch {
-    return null;
-  }
-}
-
 export interface RespostaHub<T = any> {
   ok: boolean;
   status: number;
   json: T | null;
   text: string;
+  /** Cabecalho Retry-After do Hub, em segundos. */
+  retryAfterS?: number;
 }
+
+/** Resposta dada pelo proprio ERP, sem chamar o Hub: nao ha token que valha. */
+export const respostaLocal = (codigo: string, erro: string): RespostaHub<any> => ({ ok: false, status: 409, json: { codigo, erro }, text: '' });
+const encerrada = () => respostaLocal('CONEXAO_ENCERRADA', 'Conexão encerrada: o Hub recusou o token desta conexão.');
 
 export interface OpcoesHub {
   metodo?: string;
@@ -79,6 +77,10 @@ export async function hubFetch<T = any>(caminho: string, opcoes: OpcoesHub = {})
   const metodo = (opcoes.metodo ?? 'GET').toUpperCase();
   const token = opcoes.tokenExplicito ?? (opcoes.tokenTipo === 'integrador' ? cfg.tokenIntegracao : opcoes.tokenTipo === 'nenhum' ? '' : cfg.tokenConexao);
 
+  const usaConexao = opcoes.tokenExplicito === undefined && (opcoes.tokenTipo ?? 'conexao') === 'conexao';
+  if (usaConexao && !token) return respostaLocal('SEM_CONEXAO', 'Nenhuma empresa conectada.');
+  if (usaConexao && conexaoEncerrada()) return encerrada();
+
   const headers: Record<string, string> = { ...(opcoes.headers ?? {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   const reqBody = opcoes.body !== undefined ? JSON.stringify(opcoes.body) : undefined;
@@ -87,9 +89,11 @@ export async function hubFetch<T = any>(caminho: string, opcoes: OpcoesHub = {})
   const inicio = Date.now();
   let status = 0;
   let text = '';
+  let retryAfterS: number | undefined;
   try {
     const res = await fetch(url, { method: metodo, headers, body: reqBody, signal: AbortSignal.timeout(opcoes.timeoutMs ?? 30_000) });
     status = res.status;
+    retryAfterS = Number(res.headers.get('retry-after')) || undefined;
     text = await res.text();
   } catch (err) {
     status = 0;
@@ -105,7 +109,7 @@ export async function hubFetch<T = any>(caminho: string, opcoes: OpcoesHub = {})
       url,
       status,
       ms: Date.now() - inicio,
-      erroResumo: ok ? '' : [j?.codigo, j?.erro ?? j?.message].filter(Boolean).join(' — ') || `HTTP ${status || 'REDE'}`,
+      erroResumo: ok ? '' : [j?.codigo, j?.erro ?? j?.message].filter(Boolean).join(' — ') || (status ? `HTTP ${status}` : `REDE — ${text}`),
       headers,
       reqBody,
       resBody: json ? JSON.stringify(json, null, 2) : text,
@@ -113,23 +117,21 @@ export async function hubFetch<T = any>(caminho: string, opcoes: OpcoesHub = {})
     });
   }
 
-  return { ok, status, json, text };
-}
+  // Conexao excluida, revogada ou token trocado. So vale se o token recusado ainda e o salvo
+  if (usaConexao && status === 401 && (json as any)?.codigo === 'TOKEN_INVALIDO' && obterConfig().tokenConexao === token) {
+    encerrarConexao();
+    return encerrada();
+  }
 
-/** Mensagem legivel de uma resposta de erro do Hub, com o codigo para consulta. */
-export function mensagemDoHub(r: RespostaHub<any>): string {
-  const j = r.json as any;
-  const texto = j?.erro ?? j?.message ?? j?.mensagem ?? (r.status === 0 ? `Sem resposta do Hub: ${r.text}` : `Hub respondeu HTTP ${r.status}`);
-  const detalhe = j?.detalhes?.resposta?.errmsg ?? j?.detalhes?.resposta?.error?.message ?? j?.detalhes?.motivo;
-  return `${j?.codigo ? `[${j.codigo}] ` : ''}${texto}${detalhe ? ` (${detalhe})` : ''}`;
+  return { ok, status, json, text, retryAfterS };
 }
 
 /** Atualiza estado, transporte e lojas vinculadas a partir do Hub. */
 export async function atualizarEstadoConexao() {
   const cfg = obterConfig();
-  if (!cfg.tokenConexao) return;
+  if (!conexaoPronta()) return;
   const r = await hubFetch<any>('/hub/v1/conexao', { silenciarSucesso: () => true });
-  if (r.ok && r.json) {
+  if (r.ok && r.json && obterConfig().tokenConexao === cfg.tokenConexao) {
     atualizarConfig({
       estadoConexao: r.json.estado ?? cfg.estadoConexao,
       lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []),

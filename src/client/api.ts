@@ -17,7 +17,7 @@ export interface LojaVinculada {
   loja: string;
   lojaExterna?: string | null;
   nome?: string | null;
-  pendencias?: number;
+  pendencias?: Array<{ codigo: string; mensagem: string }>;
 }
 
 export interface Sessao {
@@ -28,6 +28,8 @@ export interface Sessao {
   nomeLoja: string;
   conexaoId: string;
   temTokenConexao: boolean;
+  /** O Hub recusou o token salvo: tudo parado ate conectar de novo. */
+  conexaoEncerrada: boolean;
   transporte: string;
   webhookUrl?: string;
   temWebhookSegredo?: boolean;
@@ -107,7 +109,7 @@ export const erpApi = {
   credenciais: () => req<Credenciais>('/credenciais'),
 
   lojasLivres: (plataforma?: 'IFOOD' | '99FOOD') => req<any>(`/lojas-livres${plataforma ? `?plataforma=${id(plataforma)}` : ''}`),
-  vincularLoja: (plataforma: string, loja: string) => req('/lojas/vincular', 'POST', { plataforma, loja }),
+  vincularLoja: (plataforma: string, loja: string) => req<{ lojas?: LojaVinculada[] }>('/lojas/vincular', 'POST', { plataforma, loja }),
   liberarLoja: (plataforma: string, loja: string) => req('/lojas/liberar', 'POST', { plataforma, loja }),
   statusLoja: () => req<any>('/loja/status'),
   criarInterrupcao: (dados: { description: string; durationMinutes?: number; start?: string; end?: string }) => req('/loja/interrupcoes', 'POST', dados),

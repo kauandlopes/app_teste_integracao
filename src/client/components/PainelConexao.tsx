@@ -3,6 +3,28 @@ import { ApiErro, Sessao, erpApi, extrairStatusIfood } from '../api';
 import { IconeAtualizar } from './Icones';
 import { MenuTresPontos } from './MenuTresPontos';
 
+interface LojaLivre {
+  plataforma: string;
+  loja: string;
+  nome?: string;
+  ambiente?: 'PRODUCAO' | 'TESTE';
+  appId?: string;
+  appNome?: string;
+}
+
+/** Lojas por aplicativo da 99Food, producao primeiro. Resposta sem esses campos vira uma lista unica, sem titulo. */
+function agruparLojas(lojas: LojaLivre[]) {
+  const grupos = new Map<string, { chave: string; titulo: string; teste: boolean; lojas: LojaLivre[] }>();
+  for (const l of lojas) {
+    const chave = `${l.ambiente ?? ''}|${l.appId ?? ''}`;
+    const ambiente = l.ambiente === 'TESTE' ? 'Teste' : l.ambiente === 'PRODUCAO' ? 'Produção' : '';
+    const grupo = grupos.get(chave) ?? { chave, titulo: [ambiente, l.appNome || l.appId].filter(Boolean).join(' · '), teste: l.ambiente === 'TESTE', lojas: [] };
+    grupo.lojas.push(l);
+    grupos.set(chave, grupo);
+  }
+  return [...grupos.values()].sort((a, b) => Number(a.teste) - Number(b.teste));
+}
+
 export function PainelConexao({
   sessao,
   statusLoja,
@@ -15,7 +37,7 @@ export function PainelConexao({
   statusLoja: any;
   notificar: (tipo: 'ok' | 'erro', msg: string) => void;
   aoAtualizarSessao: () => Promise<void>;
-  aoAtualizarStatusLoja: () => Promise<void>;
+  aoAtualizarStatusLoja: (avisar?: boolean) => Promise<void>;
   aoAbrirLogs: () => void;
 }) {
   const [cnpj, setCnpj] = useState(sessao.cnpj || '');
@@ -28,6 +50,8 @@ export function PainelConexao({
   const [livres99, setLivres99] = useState<any[]>([]);
   const [buscandoLivres, setBuscandoLivres] = useState(false);
   const [modalPlat, setModalPlat] = useState<'IFOOD' | '99FOOD' | null>(null);
+  const [erroLojas, setErroLojas] = useState('');
+  const conectada = !!sessao.cnpj && sessao.temTokenConexao && !sessao.conexaoEncerrada;
   const [ocupadoLoja, setOcupadoLoja] = useState<string | null>(null);
   const [entregas, setEntregas] = useState<any[]>([]);
   const [carregandoEntregas, setCarregandoEntregas] = useState(false);
@@ -37,25 +61,28 @@ export function PainelConexao({
   const [mostrarDetalhesTecnicos, setMostrarDetalhesTecnicos] = useState(false);
   const [mostrarHomologacaoHub, setMostrarHomologacaoHub] = useState(false);
 
-  async function carregarEntregas() {
-    if (!sessao.cnpj || !sessao.temTokenConexao) return;
+  async function carregarEntregas(avisar = false) {
+    if (!conectada) return setEntregas([]);
     setCarregandoEntregas(true);
     try {
       const lista = await erpApi.listarEntregas();
       setEntregas(Array.isArray(lista) ? lista.slice(0, 15) : []);
-    } catch {
-      // ignora se conexao ainda nao estiver pronta
+    } catch (err) {
+      if (avisar) notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao consultar a fila PUSH.');
     } finally {
       setCarregandoEntregas(false);
     }
   }
 
   async function abrirModalPlataforma(plat: 'IFOOD' | '99FOOD') {
-    if (!sessao.cnpj || !sessao.temTokenConexao) {
-      notificar('erro', 'Conecte o CNPJ da empresa primeiro.');
+    if (!conectada) {
+      notificar('erro', sessao.conexaoEncerrada ? 'Conexão encerrada. Clique em "Conectar de novo".' : 'Conecte o CNPJ da empresa primeiro.');
       return;
     }
     setModalPlat(plat);
+    setErroLojas('');
+    setLivresIfood([]);
+    setLivres99([]);
     setBuscandoLivres(true);
     try {
       const r = await erpApi.lojasLivres(plat);
@@ -63,7 +90,7 @@ export function PainelConexao({
       if (plat === 'IFOOD') setLivresIfood(lista);
       else setLivres99(lista);
     } catch (err) {
-      notificar('erro', err instanceof ApiErro ? err.message : `Erro ao consultar lojas disponíveis (${plat}).`);
+      setErroLojas(err instanceof ApiErro ? err.message : `Erro ao consultar lojas disponíveis (${plat}).`);
     } finally {
       setBuscandoLivres(false);
     }
@@ -74,10 +101,12 @@ export function PainelConexao({
     setNome(sessao.nomeLoja || '');
     setTransporte(sessao.transporte === 'PULL' ? 'PULL' : 'PUSH');
     if (sessao.webhookUrl) setWebhookUrl(sessao.webhookUrl);
-    if (sessao.cnpj) {
-      void carregarEntregas();
-    }
   }, [sessao.cnpj, sessao.nomeLoja, sessao.transporte, sessao.webhookUrl]);
+
+  useEffect(() => {
+    if (sessao.conexaoEncerrada) setModalPlat(null);
+    void carregarEntregas();
+  }, [sessao.conexaoId, conectada]);
 
   async function conectarCnpj(e: React.FormEvent) {
     e.preventDefault();
@@ -91,9 +120,9 @@ export function PainelConexao({
       });
       notificar('ok', `Empresa conectada via ${transporte}. Escolha agora o iFood e/ou 99Food para vincular.`);
       await aoAtualizarSessao();
-      await carregarEntregas();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao conectar CNPJ.');
+      await aoAtualizarSessao();
     } finally {
       setSalvandoCnpj(false);
     }
@@ -102,13 +131,19 @@ export function PainelConexao({
   async function vincular(plataforma: string, loja: string) {
     setOcupadoLoja(loja);
     try {
-      await erpApi.vincularLoja(plataforma, loja);
-      notificar('ok', `Loja ${plataforma} vinculada.`);
+      const r = await erpApi.vincularLoja(plataforma, loja);
+      // O Hub responde 200 mesmo com o vinculo ainda pendente: mostra a situacao real
+      const vinculo = r?.lojas?.find((l) => l.plataforma === plataforma);
+      if (vinculo && vinculo.estado !== 'ATIVA') notificar('erro', `Loja ${plataforma} ainda não está ativa: ${vinculo.pendencias?.map((p) => p.mensagem).join(' ') || vinculo.estado}`);
+      else notificar('ok', `Loja ${plataforma} vinculada.`);
       setModalPlat(null);
       await aoAtualizarSessao();
       await aoAtualizarStatusLoja();
     } catch (err) {
-      notificar('erro', err instanceof ApiErro ? err.message : 'Falha ao vincular loja.');
+      const msg = err instanceof ApiErro ? err.message : 'Falha ao vincular loja.';
+      setErroLojas(msg);
+      notificar('erro', msg);
+      await aoAtualizarSessao();
     } finally {
       setOcupadoLoja(null);
     }
@@ -120,6 +155,7 @@ export function PainelConexao({
       await erpApi.liberarLoja(plataforma, loja);
       notificar('ok', `Loja ${plataforma} desvinculada.`);
       await aoAtualizarSessao();
+      await aoAtualizarStatusLoja();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Falha ao desvincular loja.');
     } finally {
@@ -210,7 +246,7 @@ export function PainelConexao({
           ) : null}
           <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
             <button type="submit" className="btn btn-primary" disabled={salvandoCnpj}>
-              {salvandoCnpj ? 'Conectando...' : sessao.cnpj ? 'Atualizar Empresa Conectada' : 'Conectar Empresa ao Hub'}
+              {salvandoCnpj ? 'Conectando...' : sessao.conexaoEncerrada ? 'Conectar de novo' : sessao.cnpj ? 'Atualizar Empresa Conectada' : 'Conectar Empresa ao Hub'}
             </button>
           </div>
         </form>
@@ -242,10 +278,10 @@ export function PainelConexao({
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('IFOOD')} disabled={!sessao.cnpj}>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('IFOOD')} disabled={!conectada}>
               Conectar iFood
             </button>
-            <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('99FOOD')} disabled={!sessao.cnpj}>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('99FOOD')} disabled={!conectada}>
               Conectar 99Food
             </button>
           </div>
@@ -276,8 +312,13 @@ export function PainelConexao({
                       {l.nome || (l.loja ? l.loja : 'Aguardando seleção manual')} <span className="pill">{l.plataforma}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      Status: {l.estado} {l.loja ? `· ID: ${l.loja}` : ''}
+                      Status: {l.estado} {l.loja ? `· ID: ${l.loja}` : ''} {l.lojaExterna ? `· ID na 99Food: ${l.lojaExterna}` : ''}
                     </div>
+                    {l.pendencias?.map((p) => (
+                      <div key={p.codigo} style={{ fontSize: 12, color: 'var(--warn)' }}>
+                        {p.mensagem}
+                      </div>
+                    ))}
                   </div>
                   {l.loja && l.estado === 'ATIVA' ? (
                     <button
@@ -322,41 +363,57 @@ export function PainelConexao({
               </button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {erroLojas ? (
+                <div className="banner banner-err" role="alert">
+                  {erroLojas}
+                </div>
+              ) : null}
               {buscandoLivres ? (
                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
                   Consultando lojas disponíveis na plataforma {modalPlat === 'IFOOD' ? 'iFood' : '99Food'}...
                 </div>
               ) : (modalPlat === 'IFOOD' ? livresIfood : livres99).length === 0 ? (
+                erroLojas ? null : (
                 <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
-                  Nenhuma loja livre encontrada para {modalPlat === 'IFOOD' ? 'iFood' : '99Food'} no momento.
+                  Nenhuma loja livre para {modalPlat === 'IFOOD' ? 'iFood' : '99Food'}. Autorize o aplicativo da Target no portal da plataforma e abra esta lista de novo.
                 </div>
+                )
               ) : (
-                (modalPlat === 'IFOOD' ? livresIfood : livres99).map((l) => (
-                  <div
-                    key={`${l.plataforma}-${l.loja}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      padding: 10,
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600 }}>{l.nome || l.loja}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', wordBreak: 'break-all' }}>{l.loja}</div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-primary"
-                      disabled={ocupadoLoja === l.loja}
-                      onClick={() => void vincular(l.plataforma, l.loja)}
-                    >
-                      {ocupadoLoja === l.loja ? 'Vinculando...' : 'Vincular'}
-                    </button>
-                  </div>
+                agruparLojas(modalPlat === 'IFOOD' ? livresIfood : livres99).map((g) => (
+                  <React.Fragment key={g.chave}>
+                    {g.titulo ? (
+                      <div className="field-label" style={{ marginTop: 4 }}>
+                        {g.titulo}
+                      </div>
+                    ) : null}
+                    {g.lojas.map((l) => (
+                      <div
+                        key={`${l.plataforma}-${l.loja}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          padding: 10,
+                          border: '1px solid var(--border)',
+                          borderRadius: 8,
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600 }}>{l.nome || l.loja}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', wordBreak: 'break-all' }}>{l.loja}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          disabled={ocupadoLoja === l.loja}
+                          onClick={() => void vincular(l.plataforma, String(l.loja))}
+                        >
+                          {ocupadoLoja === l.loja ? 'Vinculando...' : 'Vincular'}
+                        </button>
+                      </div>
+                    ))}
+                  </React.Fragment>
                 ))
               )}
             </div>
@@ -370,10 +427,10 @@ export function PainelConexao({
           <div>
             <h2 style={{ margin: 0, fontSize: 16 }}>3. Horário e Pausas Temporárias (iFood)</h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Estado atual: {stIfood.carregado ? stIfood.titulo : 'Não consultado'}
+              Estado atual: {stIfood.carregado ? stIfood.titulo : sessao.lojas.some((l) => l.estado === 'ATIVA') ? 'Não consultado' : 'Nenhuma loja ativa'}
             </span>
           </div>
-          <button type="button" className="btn btn-sm" onClick={aoAtualizarStatusLoja}>
+          <button type="button" className="btn btn-sm" onClick={() => void aoAtualizarStatusLoja(true)}>
             <IconeAtualizar size={14} /> Verificar status
           </button>
         </div>
@@ -448,7 +505,7 @@ export function PainelConexao({
               onClick={() => {
                 const prox = !mostrarHomologacaoHub;
                 setMostrarHomologacaoHub(prox);
-                if (prox) void carregarEntregas();
+                if (prox) void carregarEntregas(true);
               }}
             >
               {mostrarHomologacaoHub ? 'Ocultar fila interna' : 'Inspecionar fila PUSH'}
@@ -467,16 +524,20 @@ export function PainelConexao({
                   type="button"
                   className="btn btn-sm"
                   onClick={async () => {
-                    await erpApi.reativarPush().catch(() => undefined);
-                    const r = await erpApi.reprocessarEntregas().catch(() => ({ reprocessadas: 0 }));
-                    notificar('ok', `PUSH reativado. Reprocessadas: ${r.reprocessadas}.`);
-                    await carregarEntregas();
+                    try {
+                      await erpApi.reativarPush();
+                      const r = await erpApi.reprocessarEntregas();
+                      notificar('ok', `PUSH reativado. Reprocessadas: ${r.reprocessadas}.`);
+                      await carregarEntregas(true);
+                    } catch (err) {
+                      notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao reativar o PUSH.');
+                    }
                   }}
                   disabled={!sessao.cnpj}
                 >
                   Reativar / Reprocessar PUSH
                 </button>
-                <button type="button" className="btn btn-sm" onClick={carregarEntregas} disabled={carregandoEntregas || !sessao.cnpj}>
+                <button type="button" className="btn btn-sm" onClick={() => void carregarEntregas(true)} disabled={carregandoEntregas || !sessao.cnpj}>
                   <IconeAtualizar size={14} /> {carregandoEntregas ? 'Carregando...' : 'Atualizar'}
                 </button>
               </div>

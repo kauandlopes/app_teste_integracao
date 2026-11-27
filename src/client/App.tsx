@@ -49,6 +49,7 @@ export function App() {
   const [statusLoja, setStatusLoja] = useState<any>(null);
   const [totalErrosLogs, setTotalErrosLogs] = useState(0);
   const [logsAberto, setLogsAberto] = useState(false);
+  const [reconectando, setReconectando] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: number; tipo: 'ok' | 'erro'; msg: string }>>([]);
   const somRef = useRef(somLigado);
   somRef.current = somLigado;
@@ -96,13 +97,17 @@ export function App() {
     }
   }, []);
 
-  const carregarStatusLoja = useCallback(async () => {
-    try {
-      setStatusLoja(await erpApi.statusLoja());
-    } catch {
-      // loja ainda nao vinculada
-    }
-  }, []);
+  const carregarStatusLoja = useCallback(
+    async (avisar = false) => {
+      try {
+        setStatusLoja(await erpApi.statusLoja());
+      } catch (err) {
+        // Na carga automatica o erro fica so no log; no clique do operador aparece na tela
+        if (avisar) notificar('erro', mensagemDe(err, 'Não foi possível consultar a loja.'));
+      }
+    },
+    [notificar],
+  );
 
   const bootstrap = useCallback(async () => {
     setCarregando(true);
@@ -139,11 +144,14 @@ export function App() {
       if (d.aviso) notificar('erro', `Pedido #${d.codigo ?? ''}: ${d.aviso}`);
     });
     es.addEventListener('catalogo', () => void carregarProdutos());
+    const atualizarSessao = () => void carregarSessao().catch(() => undefined);
+    es.addEventListener('conexao', atualizarSessao);
     es.addEventListener('conectado', () => {
       void carregarPedidos();
       void carregarProdutos();
     });
     const t = setInterval(() => {
+      atualizarSessao();
       void carregarPedidos();
       void carregarProdutos();
     }, 15_000);
@@ -151,7 +159,12 @@ export function App() {
       es.close();
       clearInterval(t);
     };
-  }, [sessao?.autenticado, carregarPedidos, carregarProdutos, notificar]);
+  }, [sessao?.autenticado, carregarSessao, carregarPedidos, carregarProdutos, notificar]);
+
+  const encerrada = !!sessao?.conexaoEncerrada;
+  useEffect(() => {
+    if (encerrada) setStatusLoja(null);
+  }, [encerrada]);
 
   const novos = pedidos.filter((p) => p.statusKanban === 'NOVO' && p.plataforma !== 'TD').length;
   const urgentes = pedidos.filter((p) => p.pendencias.disputa || p.pendencias.cancelamentoCliente).length;
@@ -159,10 +172,26 @@ export function App() {
   // Enquanto houver pedido sem aceite ou solicitacao com prazo curto, o alerta se repete
   useEffect(() => {
     document.title = novos ? `(${novos}) Pedido novo` : 'Gestor Delivery ERP';
-    if (!somLigado || (!novos && !urgentes)) return;
+    if (!somLigado || encerrada || (!novos && !urgentes)) return;
     const t = setInterval(tocarAlerta, 8000);
     return () => clearInterval(t);
-  }, [novos, urgentes, somLigado]);
+  }, [novos, urgentes, somLigado, encerrada]);
+
+  /** Mesmo fluxo do formulario "Conectar empresa", com os dados ja salvos. So roda no clique. */
+  async function reconectar() {
+    setAba('lojas');
+    if (!sessao?.cnpj) return;
+    setReconectando(true);
+    try {
+      await erpApi.conectarCnpj({ cnpj: sessao.cnpj, nome: sessao.nomeLoja, transporte: sessao.transporte === 'PULL' ? 'PULL' : 'PUSH' });
+      notificar('ok', 'Empresa conectada de novo. Confira as lojas vinculadas.');
+    } catch (err) {
+      notificar('erro', mensagemDe(err, 'Não foi possível conectar.'));
+    } finally {
+      await carregarSessao().catch(() => undefined);
+      setReconectando(false);
+    }
+  }
 
   async function sair(limparDados: boolean) {
     await erpApi.sair(limparDados);
@@ -269,6 +298,16 @@ export function App() {
       </header>
 
       <main className="main-content">
+        {sessao.conexaoEncerrada ? (
+          <div className="banner banner-err linha" role="alert" style={{ marginBottom: 16 }}>
+            <span style={{ flex: 1, minWidth: 220 }}>
+              <strong>Conexão encerrada.</strong> O Hub recusou o token desta conexão (excluída, revogada ou com token trocado). Pedidos e cardápio estão parados.
+            </span>
+            <button type="button" className="btn btn-sm btn-primary" disabled={reconectando} onClick={() => void reconectar()}>
+              {reconectando ? 'Conectando...' : 'Conectar de novo'}
+            </button>
+          </div>
+        ) : null}
         {aba === 'pedidos' ? (
           <KanbanPedidos
             pedidos={pedidos}

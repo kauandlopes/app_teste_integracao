@@ -1,5 +1,7 @@
-import { db, obterConfig } from '../db.js';
+import { db } from '../db.js';
+import { conexaoPronta } from '../conexao/estado.js';
 import { hubFetch, mensagemDoHub, RespostaHub } from '../hubClient.js';
+import { segundosDoLimite } from '../hubErros.js';
 import { notificar } from '../stream.js';
 import type { CanalPublicacao, EstadoProduto, ProdutoCadastrado, ProdutoErp, SituacaoCanal } from '../../shared/tipos.js';
 import { paraHub } from './produto.js';
@@ -141,7 +143,8 @@ function adiar(t: Tarefa, erro: string) {
     marcar(t.codigo, 'ERRO', `Desistiu apos ${tentativas} tentativas. ${erro}`);
     return;
   }
-  const espera = ESPERAS_S[Math.min(tentativas - 1, ESPERAS_S.length - 1)];
+  // Limite da 99Food: repetir antes da janela so gasta tentativa
+  const espera = Math.max(ESPERAS_S[Math.min(tentativas - 1, ESPERAS_S.length - 1)], segundosDoLimite(erro));
   db.prepare("UPDATE fila_catalogo SET estado = 'PENDENTE', tentativas = ?, proximaEm = ?, erro = ? WHERE id = ?").run(tentativas, Date.now() + espera * 1000, erro, t.id);
   marcar(t.codigo, 'NA_FILA', `Nova tentativa em ${espera} s. ${erro}`);
 }
@@ -164,6 +167,15 @@ async function executar(t: Tarefa) {
   const codigoErro = String((r.json as any)?.codigo ?? '');
 
   if (!r.ok) {
+    // Conexao encerrada ou token trocado durante o envio: a tarefa espera o token novo, sem gastar tentativa
+    if (r.status === 401 || !conexaoPronta()) {
+      db.prepare("UPDATE fila_catalogo SET estado = 'PENDENTE', proximaEm = ? WHERE id = ?").run(Date.now() + 5_000, t.id);
+      return marcar(t.codigo, 'NA_FILA', 'Aguardando a conexão com o Hub.');
+    }
+    if (codigoErro === 'LOJA_NAO_ENCONTRADA') {
+      concluirTarefa(t.id);
+      return marcar(t.codigo, 'SEM_LOJA', mensagemDoHub(r));
+    }
     // Ajuste de produto que o Hub ainda nao conhece vira publicacao completa
     if (r.status === 404 && codigoErro === 'NAO_ENCONTRADO') {
       concluirTarefa(t.id);
@@ -197,10 +209,10 @@ async function executar(t: Tarefa) {
 let rodando = false;
 
 export async function processarCatalogo(): Promise<void> {
-  if (rodando || !obterConfig().tokenConexao) return;
+  if (rodando || !conexaoPronta()) return;
   rodando = true;
   try {
-    for (;;) {
+    while (conexaoPronta()) {
       // Ordem por produto: uma tarefa adiada segura as seguintes do mesmo codigo
       const t = db
         .prepare(`
@@ -223,6 +235,7 @@ export async function processarCatalogo(): Promise<void> {
 
 /** Consulta o resultado das publicacoes que a 99Food processa em segundo plano (mesmo que o outro canal falhe). */
 export async function acompanharProcessamento(): Promise<void> {
+  if (!conexaoPronta()) return;
   const linhas = db.prepare(`SELECT * FROM produtos WHERE canaisJson LIKE '%"PROCESSANDO"%'`).all() as LinhaProduto[];
   const ocupado = (codigo: string) => !!db.prepare('SELECT 1 FROM fila_catalogo WHERE codigo = ? AND estado = \'ENVIANDO\'').get(codigo);
   for (const l of linhas) {
@@ -230,6 +243,12 @@ export async function acompanharProcessamento(): Promise<void> {
     const r = await hubFetch<any>(`/hub/v1/conexao/catalogo/produtos/${encodeURIComponent(l.codigo)}`, {
       silenciarSucesso: (j: any) => Object.values(j?.canais ?? {}).some((c: any) => c.estado === 'PROCESSANDO'),
     });
+    // Loja desvinculada: o resultado nao vem mais, entao o produto para de ser consultado
+    if ((r.json as any)?.codigo === 'LOJA_NAO_ENCONTRADA') {
+      const semLoja = Object.fromEntries(Object.entries(JSON.parse(l.canaisJson) as Record<string, SituacaoCanal>).map(([n, c]) => [n, c.estado === 'PROCESSANDO' ? { ...c, estado: 'SEM_LOJA' as const } : c]));
+      marcar(l.codigo, 'SEM_LOJA', mensagemDoHub(r), semLoja);
+      continue;
+    }
     if (!r.ok || !r.json?.canais) continue;
     // O produto mudou durante a consulta: a resposta ja esta velha
     const atual = linha(l.codigo);

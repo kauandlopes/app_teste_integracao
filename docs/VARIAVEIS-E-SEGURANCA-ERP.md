@@ -97,6 +97,23 @@ Esta fronteira garante segurança multi-tenant, LGPD e isolamento entre os 60 cl
 > há mais de uma conexão ativa e nenhuma é informada. `GET /hub/v1/integracao` lista todas em `conexoes`; o campo
 > `conexao` é a mais recente, então o ERP não deve adotá-la sem conferir o CNPJ.
 
+### Conexão encerrada (excluída, revogada ou token trocado)
+
+- Sinal: `401 TOKEN_INVALIDO` em qualquer rota com o `hubi_` salvo. O ERP para PULL, reconciliação, publicação, fila
+  de eventos e consultas dessa conexão, sem repetir chamadas, e mostra "Conexão encerrada".
+- Nada é recuperado sozinho. O botão **Conectar de novo** repete `POST /hub/v1/integracao/conectar` com os dados
+  salvos; se a conexão ainda existir, esse mesmo clique gera o token novo em `/hub/v1/conexoes/{conexaoId}/token`.
+- A recusa vale só para aquele token: gravado um token novo, tudo volta a funcionar.
+- Se a conexão nova tiver outro `conexaoId`: eventos pendentes e fila de publicação anteriores são descartados, os
+  produtos ficam como "Sem loja vinculada" (usar **Reenviar**) e os pedidos em aberto são arquivados como cancelados.
+- Segredo do webhook: só é reaproveitado o salvo (mesma conexão, token válido) ou o de uma conexão recém-criada
+  (`201`). Nos demais casos o ERP rotaciona o segredo para não guardar um valor vencido.
+
+### Ids de 64 bits
+
+`shop_id`, `order_id` e `apply_id` da 99Food trafegam sempre como texto. Leia o corpo bruto com `lerJson`
+(`src/shared/json.ts`); nunca use `Number()` ou `JSON.parse` direto nesses campos.
+
 
 ---
 

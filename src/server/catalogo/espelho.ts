@@ -1,5 +1,6 @@
 import { db } from '../db.js';
-import { hubFetch } from '../hubClient.js';
+import { atualizarEstadoConexao, hubFetch, respostaLocal } from '../hubClient.js';
+import { semLojaAtiva } from '../conexao/estado.js';
 import type { CanalPublicacao, CategoriaEspelho } from '../../shared/tipos.js';
 
 /** Copia local do que esta publicado em cada plataforma (GET catalogo/unificado). */
@@ -22,9 +23,17 @@ function gravarCategoria(c: CategoriaEspelho, agora: string) {
 }
 
 export async function atualizarEspelho() {
+  // Sem loja ativa, confere uma vez no Hub (a Target pode ter acabado de ligar) antes de pedir o cardapio
+  if (semLojaAtiva()) await atualizarEstadoConexao();
+  if (semLojaAtiva()) {
+    return { resposta: respostaLocal('LOJA_NAO_ENCONTRADA', 'Nenhuma loja ativa nesta conexão.'), avisos: [] as string[] };
+  }
   // A 99Food limita a leitura do cardapio a 1 por minuto
   const r = await hubFetch<{ categorias: CategoriaEspelho[]; plataformasConectadas?: string[]; avisos?: string[] }>('/hub/v1/conexao/catalogo/unificado', { timeoutMs: 65_000 });
-  if (!r.ok || !r.json) return { resposta: r, avisos: [] as string[] };
+  if (!r.ok || !r.json) {
+    if ((r.json as any)?.codigo === 'LOJA_NAO_ENCONTRADA') await atualizarEstadoConexao();
+    return { resposta: r, avisos: [] as string[] };
+  }
   const categorias = Array.isArray(r.json.categorias) ? r.json.categorias : [];
   const avisos = r.json.avisos ?? [];
   const agora = new Date().toISOString();

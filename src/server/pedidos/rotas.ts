@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import { Router } from 'express';
 import { db, gravarAjuste, obterConfig } from '../db.js';
-import { hubFetch, mensagemDoHub, registrarLog } from '../hubClient.js';
+import { hubFetch, lerJson, mensagemDoHub, registrarLog } from '../hubClient.js';
+import { conexaoEncerrada } from '../conexao/estado.js';
 import { notificar } from '../stream.js';
 import type { MotivoCancelamento, StatusKanban } from '../../shared/tipos.js';
 import { aceiteAutomaticoLigado, contarFila, ErroDeAcao, executarAcao, processarFila, puxarEventos, receberEvento, reconciliar, reprocessarFalhas } from './processador.js';
@@ -34,22 +35,24 @@ export function rotasPedidos(): Router {
 
     if (cfg.webhookSegredo && !assinaturaConfere(cfg.webhookSegredo, h('x-target-assinatura'), h('x-target-timestamp'), h('x-target-notificacao'), corpo)) {
       const erro = { erro: 'Assinatura HMAC ausente ou inválida' };
-      log(401, erro, erro.erro);
+      log(401, erro, h('x-target-assinatura') ? 'Assinatura HMAC não confere com o segredo salvo. Em "Tokens e rotas", use "Novo segredo do webhook".' : 'Chamada sem assinatura HMAC (não veio do Hub).');
       return res.status(401).json(erro);
     }
 
-    const pedidoId = (h('x-target-pedido') || String(req.body?.orderId ?? req.body?.pedidoId ?? req.body?.pedido?.id ?? '')).trim();
-    const id = h('x-target-evento') || h('x-target-notificacao') || String(req.body?.id ?? crypto.createHash('sha256').update(corpo).digest('hex'));
+    // Ids de 64 bits do corpo continuam texto (req.body ja os teria arredondado)
+    const dados = lerJson<any>(corpo.toString('utf8')) ?? {};
+    const pedidoId = (h('x-target-pedido') || String(dados.orderId ?? dados.pedidoId ?? dados.pedido?.id ?? '')).trim();
+    const id = h('x-target-evento') || h('x-target-notificacao') || String(dados.id ?? crypto.createHash('sha256').update(corpo).digest('hex'));
     // Falha aqui responde 500 e o Hub reenvia
     const novo = receberEvento({
       id,
       origem: 'PUSH',
       seq: h('x-target-seq') ? Number(h('x-target-seq')) : null,
-      plataforma: h('x-target-plataforma') || String(req.body?.plataforma ?? 'IFOOD'),
+      plataforma: h('x-target-plataforma') || String(dados.plataforma ?? 'IFOOD'),
       pedidoId,
-      tipo: h('x-target-tipo') || String(req.body?.fullCode ?? req.body?.code ?? req.body?.type ?? req.body?.tipo ?? 'EVENTO'),
+      tipo: h('x-target-tipo') || String(dados.fullCode ?? dados.code ?? dados.type ?? dados.tipo ?? 'EVENTO'),
       corpo: corpo.toString('utf8'),
-      teste: req.body?.teste === true,
+      teste: dados.teste === true,
     });
     const resposta = { recebido: true, novo };
     log(200, resposta);
@@ -67,6 +70,7 @@ export function rotasPedidos(): Router {
   });
 
   api.post('/pedidos/sincronizar', async (_req, res) => {
+    if (conexaoEncerrada()) return res.status(409).json({ erro: 'Conexão encerrada. Clique em "Conectar de novo".' });
     reprocessarFalhas();
     const puxados = await puxarEventos();
     const reconciliados = await reconciliar();

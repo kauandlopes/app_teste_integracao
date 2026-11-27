@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { erpApi, LogHttp, formatarHora } from '../api';
 import { IconeAtualizar, IconeFechar } from './Icones';
+import { lerJson } from '../../shared/json';
 
 export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void; aoMudarContagem: (erros: number) => void }) {
   const [filtro, setFiltro] = useState<'todos' | 'erros' | 'sucesso'>('todos');
@@ -35,11 +36,8 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
 
   function formatarJson(txt: string): string {
     if (!txt) return '';
-    try {
-      return JSON.stringify(JSON.parse(txt), null, 2);
-    } catch {
-      return txt;
-    }
+    const json = lerJson(txt);
+    return json === null ? txt : JSON.stringify(json, null, 2);
   }
 
   function statusPill(st: number) {
