@@ -132,24 +132,35 @@ export async function hubFetch<T = any>(
 
 export function mapearEtapaParaKanban(etapa: string | null | undefined, atual?: string): string {
   const e = (etapa ?? '').toUpperCase();
-  if (e === 'PLACED' || e === 'PLC') return 'NOVO';
-  if (e === 'CONFIRMED' || e === 'CFM' || e === 'PREPARATION_STARTED') return 'PREPARO';
-  if (e === 'READY_TO_PICKUP' || e === 'RTP') return 'PRONTO';
-  if (e === 'DISPATCHED' || e === 'DSP') return 'ENTREGA';
-  if (e === 'CONCLUDED' || e === 'CON') return 'CONCLUIDO';
-  if (e === 'CANCELLED' || e === 'CAN') return 'CANCELADO';
+  if (e === 'PLACED' || e === 'PLC' || e === 'ORDERNEW' || e === 'RECEBIDO') return 'NOVO';
+  if (e === 'CONFIRMED' || e === 'CFM' || e === 'PREPARATION_STARTED' || e === 'ORDERCONFIRM' || e === 'CONFIRMADO' || e === 'EM_PREPARO') return 'PREPARO';
+  if (e === 'READY_TO_PICKUP' || e === 'RTP' || e === 'ORDERREADY' || e === 'PRONTO') return 'PRONTO';
+  if (e === 'DISPATCHED' || e === 'DSP' || e === 'DELIVERING' || e === 'DESPACHADO') return 'ENTREGA';
+  if (e === 'CONCLUDED' || e === 'CON' || e === 'ORDERFINISH' || e === 'DELIVERED' || e === 'CONCLUIDO') return 'CONCLUIDO';
+  if (e === 'CANCELLED' || e === 'CAN' || e === 'ORDERCANCEL' || e === 'CANCELADO') return 'CANCELADO';
   return atual || 'NOVO';
 }
 
 export function upsertPedidoDoDetalhe(pedidoId: string, plataforma: string, etapa: string, detalhe: any, eventoExtra?: any) {
-  const existente = db.prepare('SELECT id, statusKanban, eventosJson FROM pedidos WHERE id = ?').get(pedidoId) as
-    | { id: string; statusKanban: string; eventosJson: string }
+  const existente = db.prepare('SELECT id, statusKanban, detalheJson, eventosJson FROM pedidos WHERE id = ?').get(pedidoId) as
+    | { id: string; statusKanban: string; detalheJson: string; eventosJson: string }
     | undefined;
   const eventos = existente ? (JSON.parse(existente.eventosJson) as unknown[]) : [];
   if (eventoExtra) eventos.unshift(eventoExtra);
+  const detalheAntigo = existente ? JSON.parse(existente.detalheJson || '{}') : {};
 
   // Detecta formato unificado vindo de ?formato=unificado ou de avaliacao/v2
   const ehUnificado = Boolean(detalhe && typeof detalhe === 'object' && detalhe.valores && Array.isArray(detalhe.itens));
+  const etapaUpper = (etapa ?? '').toUpperCase();
+  const ehSolicitacaoCancelamento =
+    etapaUpper === 'CANCELLATION_REQUESTED' ||
+    etapaUpper === 'CAR' ||
+    etapaUpper === 'HANDSHAKE_DISPUTE' ||
+    etapaUpper === 'HSD' ||
+    etapaUpper === 'ORDERCANCELAPPLY' ||
+    etapaUpper === 'ORDERREFUNDAPPLY';
+  const ehCancelado = etapaUpper === 'CANCELLED' || etapaUpper === 'CAN' || etapaUpper === 'ORDERCANCEL' || etapaUpper === 'CANCELADO';
+
   let codigoCurto: string;
   let clienteNome: string;
   let clienteTelefone: string;
@@ -158,6 +169,8 @@ export function upsertPedidoDoDetalhe(pedidoId: string, plataforma: string, etap
   let itensNormalizados: any[];
   let statusKanban: string;
   let canalFinal = plataforma;
+
+  const kanbanDaEtapa = mapearEtapaParaKanban(etapa, existente?.statusKanban);
 
   if (ehUnificado) {
     canalFinal = String(detalhe.canal || plataforma);
@@ -182,7 +195,14 @@ export function upsertPedidoDoDetalhe(pedidoId: string, plataforma: string, etap
         externalCode: m.codigoExterno,
       })),
     }));
-    statusKanban = detalhe.statusKanban || mapearEtapaParaKanban(etapa, existente?.statusKanban);
+    // Nunca rebaixa um webhook de etapa real (ex: CANCELLED ou CONFIRMED) para NOVO so porque o adapter do detalhe devolveu RECEBIDO
+    statusKanban = ehCancelado
+      ? 'CANCELADO'
+      : detalhe.avaliacaoSimulada && detalhe.statusKanban
+        ? detalhe.statusKanban
+        : etapaUpper && etapaUpper !== 'PLACED' && etapaUpper !== 'PLC' && etapaUpper !== 'ORDERNEW'
+          ? kanbanDaEtapa
+          : detalhe.statusKanban || kanbanDaEtapa;
   } else {
     codigoCurto = String(detalhe?.displayId ?? detalhe?.order_index ?? pedidoId.slice(0, 6));
     clienteNome = String(detalhe?.customer?.name ?? detalhe?.recipient?.name ?? 'Cliente Marketplace');
@@ -193,8 +213,39 @@ export function upsertPedidoDoDetalhe(pedidoId: string, plataforma: string, etap
       : String(detalhe?.orderType ?? 'RETIRADA');
     totalReal = Number(detalhe?.total?.orderAmount ?? (detalhe?.price?.order_price ? Number(detalhe.price.order_price) / 100 : 0));
     itensNormalizados = detalhe?.items ?? [];
-    statusKanban = mapearEtapaParaKanban(etapa, existente?.statusKanban);
+    statusKanban = kanbanDaEtapa;
   }
+
+  // Protecao contra corrida de webhooks fora de ordem (ex: DISPATCHED chegar ms depois de CONCLUDED)
+  const ordemKanban: Record<string, number> = { NOVO: 1, PREPARO: 2, PRONTO: 3, ENTREGA: 4, CONCLUIDO: 5, CANCELADO: 6 };
+  if (!ehCancelado && existente?.statusKanban) {
+    const pesoAtual = ordemKanban[existente.statusKanban] ?? 0;
+    const pesoNovo = ordemKanban[statusKanban] ?? 0;
+    if (pesoAtual >= 5 || pesoAtual > pesoNovo) {
+      statusKanban = existente.statusKanban;
+    }
+  }
+
+  const detalheFinal: Record<string, unknown> = {
+    ...detalheAntigo,
+    ...(detalhe ?? {}),
+    ...(ehSolicitacaoCancelamento
+      ? {
+        solicitacaoCancelamento: {
+          pendente: true,
+          etapa: etapaUpper,
+          disputeId: eventoExtra?.disputeId ?? null,
+          motivo: eventoExtra?.motivo ?? 'Cliente solicitou cancelamento pela plataforma',
+          recebidoEm: new Date().toISOString(),
+        },
+      }
+      : ehCancelado
+        ? {
+          solicitacaoCancelamento: null,
+          motivoCancelamento: eventoExtra?.motivo ?? detalhe?.motivoCancelamento ?? detalheAntigo?.motivoCancelamento ?? 'Pedido cancelado pela plataforma',
+        }
+        : {}),
+  };
 
   const itensJson = JSON.stringify(itensNormalizados);
   const agora = new Date().toISOString();
@@ -226,7 +277,7 @@ export function upsertPedidoDoDetalhe(pedidoId: string, plataforma: string, etap
     statusKanban,
     etapa,
     itensJson,
-    JSON.stringify(detalhe ?? {}),
+    JSON.stringify(detalheFinal),
     JSON.stringify(eventos.slice(0, 30)),
     agora,
     agora,

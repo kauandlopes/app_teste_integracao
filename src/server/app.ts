@@ -373,10 +373,15 @@ export function criarApp() {
   /** Dispara um pedido completo pelo fluxo REAL do Hub -> outbox PUSH -> Webhook -> SSE -> Kanban. */
   api.post('/pedidos/avaliar', async (req, res) => {
     const plataforma = req.body?.plataforma;
+    const cenario = req.body?.cenario;
     const r = await hubFetch<any>('/hub/v1/conexao/avaliar-pedido', {
       metodo: 'POST',
       tokenTipo: 'conexao',
-      body: { ...(plataforma ? { plataforma } : {}), comAdicionais: req.body?.comAdicionais !== false },
+      body: {
+        ...(plataforma ? { plataforma } : {}),
+        ...(cenario ? { cenario } : {}),
+        comAdicionais: req.body?.comAdicionais !== false,
+      },
     });
     if (!r.ok || !r.json) return res.status(r.status || 400).json(r.json ?? { erro: r.text });
 
@@ -491,11 +496,25 @@ export function criarApp() {
     if (!r.ok) return res.status(r.status || 400).json(r.json ?? { erro: r.text });
 
     const etapaNova = mapearAcaoParaEtapa(acaoHub);
-    const novoKanban = mapearEtapaParaKanban(etapaNova, ped?.statusKanban);
+    const novoKanban = acaoHub === 'denyCancellation' ? ped?.statusKanban || 'PREPARO' : mapearEtapaParaKanban(etapaNova, ped?.statusKanban);
     if (ped) {
-      db.prepare('UPDATE pedidos SET statusKanban = ?, etapaPlataforma = ?, atualizadoEm = ? WHERE id = ?').run(
+      const detAtual = JSON.parse(ped.detalheJson || '{}');
+      if (dados?.courierName) {
+        detAtual.entregador = { nome: String(dados.courierName), telefone: String(dados.courierPhone ?? '') };
+      }
+      if (acaoHub === 'acceptCancellation' || acaoHub === 'denyCancellation') {
+        detAtual.solicitacaoCancelamento = null;
+      }
+      if (acaoHub === 'requestCancellation' || acaoHub === 'acceptCancellation') {
+        detAtual.motivoCancelamento = String(dados?.reason || dados?.detailReason || detAtual.motivoCancelamento || 'Cancelado pelo ERP');
+      }
+      const evs = JSON.parse(ped.eventosJson || '[]');
+      evs.unshift({ tipo: etapaNova, recebidoEm: new Date().toISOString(), origem: 'ACAO_ERP', dados: dados ?? null });
+      db.prepare('UPDATE pedidos SET statusKanban = ?, etapaPlataforma = ?, detalheJson = ?, eventosJson = ?, atualizadoEm = ? WHERE id = ?').run(
         novoKanban,
         etapaNova,
+        JSON.stringify(detAtual),
+        JSON.stringify(evs.slice(0, 30)),
         new Date().toISOString(),
         pedidoId,
       );
@@ -533,24 +552,32 @@ export function criarApp() {
     const cfg = obterConfig();
     const corpoTexto = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body ?? {});
 
-    if (cfg.webhookSegredo && req.headers['x-target-assinatura'] && req.rawBody) {
+    if (cfg.webhookSegredo) {
+      const assinaturaRecebida = String(req.headers['x-target-assinatura'] ?? '');
       const ts = String(req.headers['x-target-timestamp'] ?? '');
       const nid = String(req.headers['x-target-notificacao'] ?? '');
       const base = `${ts}.${nid}.${corpoTexto}`;
       const esperado = `v1=${crypto.createHmac('sha256', cfg.webhookSegredo).update(base).digest('hex')}`;
-      const confere = String(req.headers['x-target-assinatura']).split(',').some((s) => s.trim() === esperado);
+      const espBuf = Buffer.from(esperado, 'utf8');
+      const confere =
+        Boolean(assinaturaRecebida) &&
+        Boolean(req.rawBody) &&
+        assinaturaRecebida.split(',').some((s) => {
+          const recBuf = Buffer.from(s.trim(), 'utf8');
+          return recBuf.length === espBuf.length && crypto.timingSafeEqual(recBuf, espBuf);
+        });
       if (!confere) {
         registrarLog({
           metodo: 'WEBHOOK_PUSH',
           url: '/erp-simulador/api/webhook',
           status: 401,
           ms: Date.now() - inicio,
-          erroResumo: 'Assinatura HMAC invalida',
-          reqHeaders: JSON.stringify(req.headers),
+          erroResumo: 'Assinatura HMAC ausente ou invalida',
+          reqHeaders: JSON.stringify({ ...req.headers, ...(req.headers.authorization ? { authorization: '***' } : {}) }),
           reqBody: corpoTexto,
-          resBody: '{"erro":"Assinatura HMAC invalida"}',
+          resBody: '{"erro":"Assinatura HMAC ausente ou invalida"}',
         } as any);
-        return res.status(401).json({ erro: 'Assinatura HMAC invalida' });
+        return res.status(401).json({ erro: 'Assinatura HMAC ausente ou invalida' });
       }
     }
 
@@ -585,6 +612,8 @@ export function criarApp() {
           recebidoEm: new Date().toISOString(),
           origem: 'WEBHOOK_PUSH',
           notificacaoId: notificacaoId || null,
+          disputeId: req.body?.metadata?.disputeId ?? req.body?.disputeId ?? null,
+          motivo: req.body?.metadata?.reason ?? req.body?.reason ?? req.body?.apply_reason ?? null,
         });
         processado = true;
       }
@@ -929,10 +958,12 @@ function mapearAcaoParaEtapa(acao: string): string {
     startPreparation: 'PREPARATION_STARTED',
     readyToPickup: 'READY_TO_PICKUP',
     dispatch: 'DISPATCHED',
+    updateCourier: 'DISPATCHED',
     conclude: 'CONCLUDED',
     delivered: 'CONCLUDED',
     requestCancellation: 'CANCELLED',
     acceptCancellation: 'CANCELLED',
+    denyCancellation: 'CONFIRMED',
   };
   return m[acao] ?? acao.toUpperCase();
 }

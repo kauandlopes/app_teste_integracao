@@ -1,32 +1,38 @@
-# Gestor Delivery ERP — Aplicativo Standalone (`erp-simulador`)
+# Gestor Delivery ERP — App de Referência e Homologação (`erp-simulador`)
 
-Aplicativo independente do monorepo `/var/www/delivery`, com banco **SQLite** próprio (`better-sqlite3`), backend **Express** na porta `3004` e frontend **React + Vite**, publicado em:
+Aplicativo independente de referência para integradores ERP consumirem o **Hub Target Delivery** com **banco próprio** (SQLite WAL simulando o banco local do ERP), **Webhook PUSH instantâneo** por máquina, **SSE em tempo real**, **pedidos unificados** (iFood, 99Food e Target Delivery) e **cardápio completo unificado**.
 
-- **URL pública:** `https://delivery.targetx.com.br/erp-simulador/`
-- **Proxy Nginx:** [/etc/nginx/sites-available/delivery.targetx.com.br](file:///etc/nginx/sites-available/delivery.targetx.com.br) (`location /erp-simulador` -> `http://127.0.0.1:3004`)
-- **Processo PM2:** `erp-simulador`
-
----
-
-## 1. Estrutura de Arquivos
-
-- `src/server/db.ts` — Inicializa o SQLite em `data/erp-hub.sqlite` (modo WAL) com as tabelas:
-  - `config`: URL base da API, token do integrador (`hubp_`), CNPJ, `conexaoId`, `tokenConexao` (`hubi_`), transporte (`PULL`/`PUSH`) e lojas vinculadas.
-  - `pedidos`: pedidos sincronizados do Hub e cards de simulação local do Kanban.
-  - `catalogo_categorias` e `catalogo_itens`: espelho local do cardápio (iFood e 99Food).
-  - `logs_http`: histórico persistente (até 1000 registros) de todas as chamadas HTTP, webhooks e erros (`400`, `401`, `409`, `500`), com headers, body, resposta e `cURL`.
-- `src/server/hubClient.ts` — Cliente HTTP do Hub V1 (`hubFetch`), gravação automática em `logs_http` e worker `sincronizarComHub()` (a cada 5s em modo `PULL`, busca eventos e confirma cursor).
-- `src/server/app.ts` — API local `/erp-simulador/api/*` e entrega dos estáticos de `dist/client`.
-- `src/client/` — Interface React:
-  - `TelaEntrada.tsx`: login por token do integrador (`hubp_...`) como senha; menu `⋮` para URL da API, logs e tema.
-  - `PainelConexao.tsx`: conexão 1:1 (CNPJ), listagem/vínculo de lojas livres (iFood e 99Food) e pausas programadas.
-  - `KanbanPedidos.tsx`: quadro Kanban em 5 colunas (*Novos*, *Em Preparo*, *Prontos*, *Saiu para Entrega*, *Finalizados / Cancelados*), `+ Novo Pedido Teste`, avanço de etapas, edição manual e cancelamento com motivos reais.
-  - `GestorCatalogo.tsx`: categorias (`↑`/`↓`, ativar/pausar, renomear, criar), edição inline de preço, alternância **Visível / Pausado** (sumir/voltar item), criação/edição de item, complementos/opções e diagnóstico de não vendáveis no `⋮`.
-  - `ModalLogs.tsx`: visualizador dos logs SQLite (`Todos`, `Erros`, `Sucesso`, busca, exportação JSON e `Copiar cURL`).
+- **URL publicada:** `https://delivery.targetx.com.br/erp-simulador/`
+- **Repositório:** `https://github.com/kauandlopes/app_teste_integracao`
+- **Documentação de Variáveis, Segurança e Fluxo Completo:** [docs/VARIAVEIS-E-SEGURANCA-ERP.md](docs/VARIAVEIS-E-SEGURANCA-ERP.md)
 
 ---
 
-## 2. Comandos Operacionais
+## Resumo Rápido: O que é do ERP vs O que é do Delivery
+
+- **Token Integrador (`hubp_...`):** **Sempre o mesmo** para o software ERP parceiro (em todas as máquinas dos clientes). Fica guardado no backend do ERP, nunca exposto ao lojista.
+- **Túnel / URL do Webhook (`https://.../webhook`):** **Variável por máquina/cliente** (cada instalação informa sua URL pública HTTPS ao conectar).
+- **Banco de Dados (`data/erp-hub.sqlite` neste app):** **Próprio do ERP**. O ERP mantém suas tabelas locais (`config`, `pedidos`, `catalogo_categorias`, `catalogo_itens`) e nunca acessa o PostgreSQL do Target Delivery.
+- **Serviços exclusivos do Target Delivery (NÃO replicar no ERP final):** logs de infraestrutura do servidor Delivery, fila interna de monitoramento global, rotas `/hub/v1/admin/*`, `HUB_MASTER_TOKEN` e credenciais OAuth dos aplicativos iFood/99Food.
+
+---
+
+## Estrutura de Arquivos
+
+- [docs/VARIAVEIS-E-SEGURANCA-ERP.md](docs/VARIAVEIS-E-SEGURANCA-ERP.md) — Tabela completa de variáveis por campo, fronteiras de segurança e fluxos pós-vínculo.
+- `src/server/db.ts` — Banco SQLite WAL local do ERP (`config`, `pedidos`, `catalogo_categorias`, `catalogo_itens`, `logs_http`).
+- `src/server/hubClient.ts` — Cliente HTTP com mascaramento de tokens nos logs, normalização de pedidos (`upsertPedidoDoDetalhe`, incluindo entregadores e cancelamentos/disputas) e fallback PULL.
+- `src/server/app.ts` — Servidor Express (porta `3004`), receptor `POST /api/webhook` com validação HMAC SHA-256 + SSE `GET /api/stream`, rotas de pedidos (`avaliar`, `importar-sistema`, `acao` com entregador e cancelamentos) e cardápio unificado.
+- `src/client/`:
+  - `TelaEntrada.tsx`: entrada com o token fixo do integrador (`hubp_...`).
+  - `PainelConexao.tsx`: conexão 1:1 (CNPJ + URL PUSH da máquina), auto-vínculo/liberação de lojas, pausas e ferramentas de homologação recolhidas por padrão.
+  - `KanbanPedidos.tsx`: Kanban 5 colunas com atualização instantânea via SSE, despacho com entregador (`Nome` e `Telefone`), troca de entregador, aceite/recusa de solicitação de cancelamento do cliente e cancelamento com motivos reais.
+  - `GestorCatalogo.tsx`: cardápio completo unificado iFood + 99Food com categorias, itens, preços em reais, disponibilidade e grupos de complementos/adicionais.
+  - `ModalLogs.tsx`: log local apenas para homologação/depuração do integrador.
+
+---
+
+## Comandos Operacionais
 
 ```bash
 cd /var/www/app-balanço/erp-simulador
@@ -37,30 +43,9 @@ npm install
 # Validar TypeScript e gerar build do frontend (dist/client)
 npm run typecheck && npm run build
 
-# Reiniciar no PM2
+# Reiniciar processo no PM2
 pm2 restart erp-simulador
 
-# Saúde da API local
+# Verificar saúde local
 curl http://127.0.0.1:3004/erp-simulador/api/saude
 ```
-
----
-
-## 3. Fluxo Padrão dos Clientes ERP (1:1)
-
-1. **Login no App:** informar o token do integrador (`hubp_...`).
-2. **Conectar CNPJ (`POST /hub/v1/integracao/conectar`):** vincula 1 CNPJ à integração e obtém o token da conexão (`hubi_...`).
-3. **Vincular Loja (`GET /hub/v1/conexao/lojas-disponiveis` + `POST /hub/v1/conexao/lojas`):** associa a loja iFood e/ou 99Food disponível.
-4. **Pedidos (`PULL` ou `PUSH`):**
-   - `GET /hub/v1/eventos` + `POST /hub/v1/eventos/confirmar`
-   - `GET /hub/v1/conexao/pedidos/:pedidoId`
-   - `POST /hub/v1/conexao/pedidos/:pedidoId/acao` (`confirm`, `startPreparation`, `readyToPickup`, `dispatch`, `requestCancellation`, etc.)
-5. **Catálogo:**
-   - `GET /hub/v1/conexao/catalogo`
-   - `POST /hub/v1/conexao/catalogo/categorias` / `PATCH /hub/v1/conexao/catalogo/categorias/:id`
-   - `PUT /hub/v1/conexao/catalogo/itens`
-   - `PATCH /hub/v1/conexao/catalogo/itens/status` e `/itens/preco`
-   - `PATCH /hub/v1/conexao/catalogo/opcoes/status` e `/opcoes/preco`
-6. **Loja (Status e Pausas):**
-   - `GET /hub/v1/conexao/loja/status`
-   - `POST /hub/v1/conexao/loja/interrupcoes` e `DELETE /hub/v1/conexao/loja/interrupcoes/:id`

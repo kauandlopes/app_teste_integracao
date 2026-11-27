@@ -36,12 +36,15 @@ export function KanbanPedidos({
   const [motivoCancelTexto, setMotivoCancelTexto] = useState('');
   const [subDadosJson, setSubDadosJson] = useState<string | null>(null);
 
-  // Form edição manual do pedido
+  // Form edição manual / entregador do pedido
   const [editNome, setEditNome] = useState('');
   const [editTel, setEditTel] = useState('');
   const [editEnd, setEditEnd] = useState('');
   const [editObs, setEditObs] = useState('');
   const [editCol, setEditCol] = useState<StatusKanban>('NOVO');
+  const [entregadorNome, setEntregadorNome] = useState('');
+  const [entregadorTel, setEntregadorTel] = useState('');
+  const [mostrarFormEntregador, setMostrarFormEntregador] = useState(false);
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -61,6 +64,9 @@ export function KanbanPedidos({
     setEditEnd(p.endereco);
     setEditObs(p.detalhe?.observacaoErp ?? '');
     setEditCol(p.statusKanban);
+    setEntregadorNome(p.detalhe?.entregador?.nome ?? '');
+    setEntregadorTel(p.detalhe?.entregador?.telefone ?? '');
+    setMostrarFormEntregador(false);
     if (abaInicial === 'cancelar') void carregarMotivos(p);
   }
 
@@ -210,6 +216,8 @@ export function KanbanPedidos({
                 },
               },
               { rotulo: 'Avaliar Pedido 99Food (PUSH)', aoClicar: async () => { setCriandoTeste(true); try { const r = await erpApi.avaliarPedido('99FOOD'); notificar('ok', `Pedido 99Food ${r.pedido?.codigoExibicao || ''} enviado via PUSH.`); await aoRecarregar(false); } catch (err) { notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao avaliar 99Food.'); } finally { setCriandoTeste(false); } } },
+              { rotulo: 'Testar Solicitação de Cancelamento (PUSH)', aoClicar: async () => { setCriandoTeste(true); try { const r = await erpApi.avaliarPedido('IFOOD', 'solicitacao_cancelamento'); notificar('ok', `Solicitação de cancelamento ${r.pedido?.codigoExibicao || ''} enviada via PUSH.`); await aoRecarregar(false); } catch (err) { notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao testar cancelamento.'); } finally { setCriandoTeste(false); } } },
+              { rotulo: 'Testar Pedido Cancelado pela Plataforma (PUSH)', aoClicar: async () => { setCriandoTeste(true); try { const r = await erpApi.avaliarPedido('IFOOD', 'cancelado'); notificar('ok', `Pedido cancelado ${r.pedido?.codigoExibicao || ''} enviado via PUSH.`); await aoRecarregar(false); } catch (err) { notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao testar cancelamento.'); } finally { setCriandoTeste(false); } } },
               { rotulo: 'Disparar só evento PING/Teste no Hub', aoClicar: () => criarTeste(false) },
               {
                 rotulo: 'Limpar pedidos de simulação local',
@@ -261,6 +269,8 @@ export function KanbanPedidos({
                           <span className="pill">{p.plataforma === '99FOOD' ? '99Food' : p.plataforma === 'TD' ? 'Delivery' : 'iFood'}</span>
                           {p.testeLocal ? <span className="pill pill-info">Teste</span> : null}
                           {cancelado ? <span className="pill pill-err">Cancelado</span> : null}
+                          {p.detalhe?.solicitacaoCancelamento?.pendente ? <span className="pill pill-warn">Pedido Cancelamento</span> : null}
+                          {p.detalhe?.entregador?.nome ? <span className="pill pill-ok">{p.detalhe.entregador.nome}</span> : null}
                         </div>
                         <MenuTresPontos
                           compacto
@@ -360,7 +370,58 @@ export function KanbanPedidos({
                         Obs. ERP: {selecionado.detalhe.observacaoErp}
                       </div>
                     ) : null}
+                    {selecionado.detalhe?.entregador?.nome ? (
+                      <div style={{ fontSize: 13, marginTop: 6 }}>
+                        Entregador: <strong>{selecionado.detalhe.entregador.nome}</strong>
+                        {selecionado.detalhe.entregador.telefone ? ` · ${selecionado.detalhe.entregador.telefone}` : ''}
+                      </div>
+                    ) : null}
+                    {selecionado.statusKanban === 'CANCELADO' && selecionado.detalhe?.motivoCancelamento ? (
+                      <div style={{ fontSize: 13, marginTop: 6, color: 'var(--err)' }}>
+                        Cancelado: {selecionado.detalhe.motivoCancelamento}
+                      </div>
+                    ) : null}
                   </div>
+
+                  {selecionado.detalhe?.solicitacaoCancelamento?.pendente ? (
+                    <div className="card" style={{ padding: 12, borderColor: 'var(--warn)' }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Cliente solicitou cancelamento na plataforma</div>
+                      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 10 }}>
+                        {selecionado.detalhe.solicitacaoCancelamento.motivo || 'Solicitação pendente de resposta do estabelecimento.'}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          disabled={ocupadoId === selecionado.id}
+                          onClick={() =>
+                            executarAcao(selecionado, 'acceptCancellation', {
+                              ...(selecionado.detalhe.solicitacaoCancelamento.disputeId
+                                ? { disputeId: selecionado.detalhe.solicitacaoCancelamento.disputeId }
+                                : {}),
+                            })
+                          }
+                        >
+                          Aceitar cancelamento do cliente
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={ocupadoId === selecionado.id}
+                          onClick={() =>
+                            executarAcao(selecionado, 'denyCancellation', {
+                              ...(selecionado.detalhe.solicitacaoCancelamento.disputeId
+                                ? { disputeId: selecionado.detalhe.solicitacaoCancelamento.disputeId }
+                                : {}),
+                              reason: 'Pedido já em preparação/rota pelo estabelecimento',
+                            })
+                          }
+                        >
+                          Recusar cancelamento
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div>
                     <div className="field-label" style={{ marginBottom: 6 }}>
@@ -415,8 +476,11 @@ export function KanbanPedidos({
                     <button type="button" className="btn btn-sm" onClick={() => executarAcao(selecionado, 'readyToPickup')}>
                       Marcar pronto
                     </button>
+                    <button type="button" className="btn btn-sm" onClick={() => setMostrarFormEntregador((v) => !v)}>
+                      {selecionado.statusKanban === 'ENTREGA' ? 'Alterar entregador' : 'Despachar c/ entregador'}
+                    </button>
                     <button type="button" className="btn btn-sm" onClick={() => executarAcao(selecionado, 'dispatch')}>
-                      Despachar
+                      Despachar rápido
                     </button>
                     <button type="button" className="btn btn-sm" onClick={() => executarAcao(selecionado, 'conclude')}>
                       Concluir
@@ -435,6 +499,47 @@ export function KanbanPedidos({
                       Cancelar pedido
                     </button>
                   </div>
+
+                  {mostrarFormEntregador ? (
+                    <div className="card" style={{ padding: 12 }}>
+                      <div className="field-label" style={{ marginBottom: 8 }}>
+                        Dados do Entregador (Obrigatório na entrega própria 99Food)
+                      </div>
+                      <div className="grid-2" style={{ marginBottom: 8 }}>
+                        <input
+                          className="input input-sm"
+                          placeholder="Nome do entregador (ex: João Silva)"
+                          value={entregadorNome}
+                          onChange={(e) => setEntregadorNome(e.target.value)}
+                        />
+                        <input
+                          className="input input-sm"
+                          placeholder="Telefone (ex: 11999998888)"
+                          value={entregadorTel}
+                          onChange={(e) => setEntregadorTel(e.target.value)}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <button type="button" className="btn btn-sm" onClick={() => setMostrarFormEntregador(false)}>
+                          Fechar
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          disabled={ocupadoId === selecionado.id || !entregadorNome.trim() || !entregadorTel.trim()}
+                          onClick={() =>
+                            executarAcao(
+                              selecionado,
+                              selecionado.statusKanban === 'ENTREGA' ? 'updateCourier' : 'dispatch',
+                              { courierName: entregadorNome.trim(), courierPhone: entregadorTel.trim() },
+                            )
+                          }
+                        >
+                          {selecionado.statusKanban === 'ENTREGA' ? 'Salvar entregador' : 'Despachar com entregador'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
 

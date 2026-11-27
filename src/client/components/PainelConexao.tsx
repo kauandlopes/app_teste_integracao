@@ -34,6 +34,7 @@ export function PainelConexao({
   const [pausaDesc, setPausaDesc] = useState('Pausa operacional');
   const [pausaMin, setPausaMin] = useState(30);
   const [mostrarDetalhesTecnicos, setMostrarDetalhesTecnicos] = useState(false);
+  const [mostrarHomologacaoHub, setMostrarHomologacaoHub] = useState(false);
 
   async function carregarEntregas() {
     if (!sessao.cnpj || !sessao.temTokenConexao) return;
@@ -378,13 +379,13 @@ export function PainelConexao({
         ) : null}
       </div>
 
-      {/* Passo 4: Fila PUSH Instantânea & Diagnóstico */}
+      {/* Passo 4: Webhook & Homologação (Inspeção interna - apenas para testes, não vai para tela final do lojista) */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 16 }}>4. Webhook PUSH Instantâneo & Entregas</h2>
+            <h2 style={{ margin: 0, fontSize: 16 }}>4. Webhook PUSH & Ferramentas de Homologação</h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Transporte: <strong>{sessao.transporte || 'PULL'}</strong> · Assinatura HMAC: {sessao.temWebhookSegredo ? 'Ativa' : 'Sem segredo local'}
+              Transporte: <strong>{sessao.transporte || 'PUSH'}</strong> · Assinatura HMAC: {sessao.temWebhookSegredo ? 'Ativa' : 'Pendente'} · Fila/logs internos são serviço do Delivery (opcional em testes)
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -395,7 +396,7 @@ export function PainelConexao({
                 try {
                   const r = await erpApi.avaliarPedido();
                   notificar('ok', `Pedido ${r.pedido?.codigoExibicao || r.pedidoId} disparado via Webhook PUSH.`);
-                  setTimeout(() => void carregarEntregas(), 400);
+                  if (mostrarHomologacaoHub) setTimeout(() => void carregarEntregas(), 400);
                 } catch (err) {
                   notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao disparar avaliação.');
                 }
@@ -407,58 +408,81 @@ export function PainelConexao({
             <button
               type="button"
               className="btn btn-sm"
-              onClick={async () => {
-                await erpApi.reativarPush().catch(() => undefined);
-                const r = await erpApi.reprocessarEntregas().catch(() => ({ reprocessadas: 0 }));
-                notificar('ok', `PUSH reativado. Reprocessadas: ${r.reprocessadas}.`);
-                await carregarEntregas();
+              onClick={() => {
+                const prox = !mostrarHomologacaoHub;
+                setMostrarHomologacaoHub(prox);
+                if (prox) void carregarEntregas();
               }}
-              disabled={!sessao.cnpj}
             >
-              Reativar / Reprocessar PUSH
-            </button>
-            <button type="button" className="btn btn-sm" onClick={carregarEntregas} disabled={carregandoEntregas || !sessao.cnpj}>
-              <IconeAtualizar size={14} /> {carregandoEntregas ? 'Carregando...' : 'Atualizar'}
+              {mostrarHomologacaoHub ? 'Ocultar fila interna' : 'Inspecionar fila PUSH'}
             </button>
           </div>
         </div>
 
-        {entregas.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhuma entrega PUSH registrada ainda nesta conexão.</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="item-table">
-              <thead>
-                <tr>
-                  <th>Seq</th>
-                  <th>Canal / Tipo</th>
-                  <th>Pedido</th>
-                  <th>Estado</th>
-                  <th>HTTP / Tentativas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entregas.map((en: any) => (
-                  <tr key={en.notificacaoId || en.evento}>
-                    <td>#{en.seq}</td>
-                    <td>
-                      <span className="pill">{en.plataforma}</span> {en.tipo}
-                    </td>
-                    <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{en.pedido || '-'}</td>
-                    <td>
-                      <span className={`pill ${en.estado === 'DELIVERED' ? 'pill-ok' : en.estado === 'DEAD' ? 'pill-err' : 'pill-warn'}`}>
-                        {en.estado}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                      HTTP {en.ultimoStatus ?? '-'} · {en.tentativas}x {en.ultimoErro ? `(${en.ultimoErro})` : ''}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {mostrarHomologacaoHub ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Diagnóstico de entregas do Hub (apenas homologação — o ERP de produção confia no seu próprio receptor <code>/webhook</code>).
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={async () => {
+                    await erpApi.reativarPush().catch(() => undefined);
+                    const r = await erpApi.reprocessarEntregas().catch(() => ({ reprocessadas: 0 }));
+                    notificar('ok', `PUSH reativado. Reprocessadas: ${r.reprocessadas}.`);
+                    await carregarEntregas();
+                  }}
+                  disabled={!sessao.cnpj}
+                >
+                  Reativar / Reprocessar PUSH
+                </button>
+                <button type="button" className="btn btn-sm" onClick={carregarEntregas} disabled={carregandoEntregas || !sessao.cnpj}>
+                  <IconeAtualizar size={14} /> {carregandoEntregas ? 'Carregando...' : 'Atualizar'}
+                </button>
+              </div>
+            </div>
+
+            {entregas.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhuma entrega PUSH registrada ainda nesta conexão.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="item-table">
+                  <thead>
+                    <tr>
+                      <th>Seq</th>
+                      <th>Canal / Tipo</th>
+                      <th>Pedido</th>
+                      <th>Estado</th>
+                      <th>HTTP / Tentativas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entregas.map((en: any) => (
+                      <tr key={en.notificacaoId || en.evento}>
+                        <td>#{en.seq}</td>
+                        <td>
+                          <span className="pill">{en.plataforma}</span> {en.tipo}
+                        </td>
+                        <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{en.pedido || '-'}</td>
+                        <td>
+                          <span className={`pill ${en.estado === 'DELIVERED' ? 'pill-ok' : en.estado === 'DEAD' ? 'pill-err' : 'pill-warn'}`}>
+                            {en.estado}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                          HTTP {en.ultimoStatus ?? '-'} · {en.tentativas}x {en.ultimoErro ? `(${en.ultimoErro})` : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

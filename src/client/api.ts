@@ -138,10 +138,10 @@ export const erpApi = {
   listarPedidos: (sync = false) => req<PedidoErp[]>(`/pedidos${sync ? '?sync=true' : ''}`),
   sincronizarPedidos: () => req<{ ok: boolean; novosEventos: number }>('/pedidos/sincronizar', { method: 'POST' }),
   importarSistema: () => req<{ ok: boolean; importados: number }>('/pedidos/importar-sistema', { method: 'POST' }),
-  avaliarPedido: (plataforma?: 'IFOOD' | '99FOOD') =>
+  avaliarPedido: (plataforma?: 'IFOOD' | '99FOOD', cenario?: 'normal' | 'solicitacao_cancelamento' | 'cancelado') =>
     req<{ ok: boolean; seq: number; eventoId: string; pedidoId: string; pedido: any }>('/pedidos/avaliar', {
       method: 'POST',
-      body: JSON.stringify(plataforma ? { plataforma } : {}),
+      body: JSON.stringify({ ...(plataforma ? { plataforma } : {}), ...(cenario ? { cenario } : {}) }),
     }),
   criarPedidoTeste: (criarCardKanban = true) =>
     req('/pedidos/teste', { method: 'POST', body: JSON.stringify({ criarCardKanban }) }),
