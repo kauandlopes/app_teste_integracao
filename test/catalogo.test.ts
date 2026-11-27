@@ -230,3 +230,16 @@ test('preco rapido de sabor com acrescimo por tamanho e recusado', async () => {
   const { produto } = (await a.erp('PUT', '/catalogo/produtos', comTamanho)).json;
   assert.equal((await a.erp('PATCH', `/catalogo/produtos/${produto.codigo}/opcoes/CAL`, { preco: 12 })).status, 400);
 });
+
+test('pausa aceita por um canal e lembrada mesmo com erro no outro', async () => {
+  publicado(canais('PUBLICADO', 'ERRO', 'Data not exist'));
+  a.quando('PATCH', /\/catalogo\/produtos\//, () => ({ json: { ok: false, resultado: { canais: canais('PUBLICADO', 'ERRO', 'recusou') } } }));
+  const comPausa = { ...pizza, codigo: 'PZ' };
+  const { produto } = (await a.erp('PUT', '/catalogo/produtos', comPausa)).json;
+  await esperar();
+  assert.deepEqual(JSON.parse((a.banco.db.prepare("SELECT pausadasJson FROM produtos WHERE codigo = 'PZ'").get() as any).pausadasJson), ['CAM']);
+  produto.pizza.sabores[1].disponivel = true;
+  await a.erp('PUT', '/catalogo/produtos', produto);
+  await esperar();
+  assert.deepEqual(pausas().at(-1), ['CAM', true]);
+});

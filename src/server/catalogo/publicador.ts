@@ -220,9 +220,10 @@ async function executar(t: Tarefa) {
   }
 
   marcar(t.codigo, resumo.estado, resumo.erro, canais);
-  if (t.operacao === 'PATCH_OPCAO' && !resumo.erro) {
+  if (t.operacao === 'PATCH_OPCAO') {
+    // A pausa vale mesmo se um canal falhar (o outro pode ter pausado); a reativacao so conta sem erro nenhum
     const disponivel = JSON.parse(t.dadosJson).disponivel;
-    if (typeof disponivel === 'boolean') registrarPausa(t.codigo, t.opcao, disponivel);
+    if (disponivel === false || (disponivel === true && !resumo.erro)) registrarPausa(t.codigo, t.opcao, disponivel);
   }
   if (t.operacao === 'PUBLICAR') {
     if (processando(canais)) db.prepare('UPDATE produtos SET reaplicarPausas = 1 WHERE codigo = ?').run(t.codigo);
