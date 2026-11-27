@@ -49,9 +49,11 @@ export interface CatalogoItem {
   id: string;
   categoriaId: string;
   plataforma: string;
+  tipo?: 'DEFAULT' | 'PIZZA';
   nome: string;
   descricao: string;
   sku: string;
+  imagemUrl?: string | null;
   preco: number;
   status: 'AVAILABLE' | 'UNAVAILABLE';
   ordem: number;
@@ -178,6 +180,11 @@ export const erpApi = {
     req('/catalogo/opcoes/status', { method: 'PATCH', body: JSON.stringify({ optionId, status, plataforma }) }),
   precoOpcao: (optionId: string, valor: number, plataforma = 'IFOOD') =>
     req('/catalogo/opcoes/preco', { method: 'PATCH', body: JSON.stringify({ optionId, price: { value: valor }, plataforma }) }),
+  enviarImagem: (image: string, plataforma = 'IFOOD') =>
+    req<{ ok?: boolean; id?: string; url?: string; imagePath?: string }>('/catalogo/imagem', {
+      method: 'POST',
+      body: JSON.stringify({ image, plataforma }),
+    }),
   naoVendaveis: () => req<any>('/catalogo/nao-vendaveis'),
 
   listarLogs: (filtro: 'todos' | 'erros' | 'sucesso' = 'todos', q = '') =>

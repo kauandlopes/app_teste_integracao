@@ -695,11 +695,16 @@ export function criarApp() {
         payload: JSON.parse(c.payloadJson || '{}'),
         itens: itens
           .filter((i) => i.categoriaId === c.id)
-          .map((i) => ({
-            ...i,
-            grupos: JSON.parse(i.gruposJson || '[]'),
-            payload: JSON.parse(i.payloadJson || '{}'),
-          })),
+          .map((i) => {
+            const pay = JSON.parse(i.payloadJson || '{}');
+            return {
+              ...i,
+              tipo: pay.tipo ?? 'DEFAULT',
+              imagemUrl: pay.imagemUrl ?? null,
+              grupos: JSON.parse(i.gruposJson || '[]'),
+              payload: pay,
+            };
+          }),
       })),
     });
   });
@@ -766,11 +771,29 @@ export function criarApp() {
   api.put('/catalogo/itens', async (req, res) => {
     const plat = String(req.query.plataforma ?? req.body?.plataforma ?? 'IFOOD').toUpperCase();
     let payload = req.body;
-    if (plat === 'IFOOD' && !payload?.item) {
+    const ehPizza = payload?.tipo === 'PIZZA' || payload?.type === 'PIZZA';
+    if (plat === 'IFOOD' && !payload?.item && !ehPizza) {
       const itemId = String(payload?.id ?? crypto.randomUUID());
       const productId = String(payload?.productId ?? crypto.randomUUID());
       const preco = Number(payload?.preco ?? payload?.price?.value ?? 0);
-      const grupos = Array.isArray(payload?.optionGroups) ? payload.optionGroups : [];
+      const gruposInput = Array.isArray(payload?.optionGroups)
+        ? payload.optionGroups
+        : Array.isArray(payload?.grupos)
+          ? payload.grupos.map((g: any) => ({
+              id: g.id || crypto.randomUUID(),
+              name: String(g.nome ?? g.name ?? 'Complementos'),
+              min: Number(g.min ?? 0),
+              max: Number(g.max ?? 1),
+              status: g.status ?? 'AVAILABLE',
+              options: (Array.isArray(g.opcoes) ? g.opcoes : Array.isArray(g.options) ? g.options : []).map((op: any) => ({
+                id: op.id || crypto.randomUUID(),
+                name: String(op.nome ?? op.name ?? 'Opção'),
+                externalCode: String(op.sku ?? op.externalCode ?? ''),
+                status: op.status ?? 'AVAILABLE',
+                price: { value: Number(op.preco ?? op.price?.value ?? 0) },
+              })),
+            }))
+          : [];
       payload = {
         item: {
           id: itemId,
@@ -779,6 +802,7 @@ export function criarApp() {
           status: payload?.status ?? 'AVAILABLE',
           price: { value: preco },
           ...(payload?.externalCode || payload?.sku ? { externalCode: String(payload.externalCode ?? payload.sku) } : {}),
+          ...(payload?.imagem || payload?.imagePath ? { imagePath: String(payload.imagem ?? payload.imagePath) } : {}),
           index: Number(payload?.index ?? 0),
           productId,
         },
@@ -788,11 +812,14 @@ export function criarApp() {
             name: String(payload?.name ?? payload?.nome ?? 'Item'),
             description: String(payload?.description ?? payload?.descricao ?? ''),
             ...(payload?.externalCode || payload?.sku ? { externalCode: String(payload.externalCode ?? payload.sku) } : {}),
+            ...(payload?.imagem || payload?.imagePath ? { imagePath: String(payload.imagem ?? payload.imagePath) } : {}),
             serving: payload?.serving ?? 'SERVES_1',
-            ...(grupos.length ? { optionGroups: grupos } : {}),
+            ...(gruposInput.length ? { optionGroups: gruposInput } : {}),
           },
         ],
       };
+    } else if (plat === 'IFOOD' && ehPizza && !payload?.item) {
+      payload = { ...payload, tipo: 'PIZZA', categoriaId: payload.categoriaId ?? payload.categoryId };
     }
     const r = await hubFetch(`/hub/v1/conexao/catalogo/itens?plataforma=${encodeURIComponent(plat)}`, {
       metodo: 'PUT',
@@ -802,6 +829,18 @@ export function criarApp() {
     if (!r.ok) return res.status(r.status || 400).json(r.json ?? { erro: r.text });
     await sincronizarCatalogoNoSqlite();
     res.json(r.json);
+  });
+
+  api.post('/catalogo/imagem', async (req, res) => {
+    const plat = String(req.body?.plataforma ?? req.query.plataforma ?? 'IFOOD').toUpperCase();
+    const image = String(req.body?.image ?? '');
+    if (!image) return res.status(400).json({ erro: 'Informe a imagem em base64 ou data URI.' });
+    const r = await hubFetch(`/hub/v1/conexao/catalogo/imagem?plataforma=${encodeURIComponent(plat)}`, {
+      metodo: 'POST',
+      tokenTipo: 'conexao',
+      body: { image },
+    });
+    res.status(r.status || 400).json(r.json ?? { erro: r.text });
   });
 
   api.patch('/catalogo/itens/status', async (req, res) => {
