@@ -27,6 +27,7 @@ export function PainelConexao({
   const [livresIfood, setLivresIfood] = useState<any[]>([]);
   const [livres99, setLivres99] = useState<any[]>([]);
   const [buscandoLivres, setBuscandoLivres] = useState(false);
+  const [modalPlat, setModalPlat] = useState<'IFOOD' | '99FOOD' | null>(null);
   const [ocupadoLoja, setOcupadoLoja] = useState<string | null>(null);
   const [entregas, setEntregas] = useState<any[]>([]);
   const [carregandoEntregas, setCarregandoEntregas] = useState(false);
@@ -49,15 +50,20 @@ export function PainelConexao({
     }
   }
 
-  async function carregarLivres() {
-    if (!sessao.cnpj || !sessao.temTokenConexao) return;
+  async function abrirModalPlataforma(plat: 'IFOOD' | '99FOOD') {
+    if (!sessao.cnpj || !sessao.temTokenConexao) {
+      notificar('erro', 'Conecte o CNPJ da empresa primeiro.');
+      return;
+    }
+    setModalPlat(plat);
     setBuscandoLivres(true);
     try {
-      const r = await erpApi.lojasLivres();
-      setLivresIfood(Array.isArray(r.ifood) ? r.ifood : []);
-      setLivres99(Array.isArray(r.ninenine) ? r.ninenine : []);
+      const r = await erpApi.lojasLivres(plat);
+      const lista = Array.isArray(r) ? r : plat === 'IFOOD' ? (Array.isArray(r?.ifood) ? r.ifood : []) : Array.isArray(r?.ninenine) ? r.ninenine : [];
+      if (plat === 'IFOOD') setLivresIfood(lista);
+      else setLivres99(lista);
     } catch (err) {
-      notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao consultar lojas disponíveis.');
+      notificar('erro', err instanceof ApiErro ? err.message : `Erro ao consultar lojas disponíveis (${plat}).`);
     } finally {
       setBuscandoLivres(false);
     }
@@ -69,7 +75,6 @@ export function PainelConexao({
     setTransporte(sessao.transporte === 'PULL' ? 'PULL' : 'PUSH');
     if (sessao.webhookUrl) setWebhookUrl(sessao.webhookUrl);
     if (sessao.cnpj) {
-      void carregarLivres();
       void carregarEntregas();
     }
   }, [sessao.cnpj, sessao.nomeLoja, sessao.transporte, sessao.webhookUrl]);
@@ -84,9 +89,8 @@ export function PainelConexao({
         transporte,
         ...(transporte === 'PUSH' && webhookUrl ? { webhookUrl } : {}),
       });
-      notificar('ok', `Empresa conectada via ${transporte} e lojas verificadas.`);
+      notificar('ok', `Empresa conectada via ${transporte}. Escolha agora o iFood e/ou 99Food para vincular.`);
       await aoAtualizarSessao();
-      await carregarLivres();
       await carregarEntregas();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao conectar CNPJ.');
@@ -100,8 +104,8 @@ export function PainelConexao({
     try {
       await erpApi.vincularLoja(plataforma, loja);
       notificar('ok', `Loja ${plataforma} vinculada.`);
+      setModalPlat(null);
       await aoAtualizarSessao();
-      await carregarLivres();
       await aoAtualizarStatusLoja();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Falha ao vincular loja.');
@@ -116,7 +120,6 @@ export function PainelConexao({
       await erpApi.liberarLoja(plataforma, loja);
       notificar('ok', `Loja ${plataforma} desvinculada.`);
       await aoAtualizarSessao();
-      await carregarLivres();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Falha ao desvincular loja.');
     } finally {
@@ -231,45 +234,52 @@ export function PainelConexao({
 
       {/* Passo 2: Lojas */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 16 }}>2. Lojas iFood e 99Food</h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Vincule ou libere canais disponíveis para receber pedidos e editar cardápios.
+              Conecte manualmente cada canal escolhendo a loja na lista disponível.
             </span>
           </div>
-          <button type="button" className="btn btn-sm" onClick={carregarLivres} disabled={buscandoLivres || !sessao.cnpj}>
-            <IconeAtualizar size={14} /> {buscandoLivres ? 'Buscando...' : 'Atualizar Lojas'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('IFOOD')} disabled={!sessao.cnpj}>
+              Conectar iFood
+            </button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('99FOOD')} disabled={!sessao.cnpj}>
+              Conectar 99Food
+            </button>
+          </div>
         </div>
 
-        <div className="grid-2">
-          <div>
-            <div className="field-label" style={{ marginBottom: 6 }}>
-              Lojas Conectadas Nesta Empresa ({sessao.lojas.length})
-            </div>
-            {sessao.lojas.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhuma loja vinculada ainda.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {sessao.lojas.map((l) => (
-                  <div
-                    key={`${l.plataforma}-${l.loja}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: 10,
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>
-                        {l.nome || l.loja} <span className="pill">{l.plataforma}</span>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Status: {l.estado}</div>
+        <div>
+          <div className="field-label" style={{ marginBottom: 6 }}>
+            Lojas Conectadas Nesta Empresa ({sessao.lojas.filter((l) => l.estado === 'ATIVA').length})
+          </div>
+          {sessao.lojas.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nenhuma loja vinculada ainda. Use os botões acima para escolher iFood ou 99Food.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {sessao.lojas.map((l) => (
+                <div
+                  key={`${l.plataforma}-${l.loja || l.estado}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 10,
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {l.nome || (l.loja ? l.loja : 'Aguardando seleção manual')} <span className="pill">{l.plataforma}</span>
                     </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      Status: {l.estado} {l.loja ? `· ID: ${l.loja}` : ''}
+                    </div>
+                  </div>
+                  {l.loja && l.estado === 'ATIVA' ? (
                     <button
                       type="button"
                       className="btn btn-sm btn-danger"
@@ -278,54 +288,81 @@ export function PainelConexao({
                     >
                       Desvincular
                     </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <div className="field-label" style={{ marginBottom: 6 }}>
-              Lojas Livres Disponíveis para Vincular
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={!sessao.cnpj}
+                      onClick={() => void abrirModalPlataforma(l.plataforma === '99FOOD' ? '99FOOD' : 'IFOOD')}
+                    >
+                      Escolher loja
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
-            {livresIfood.length === 0 && livres99.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                Nenhuma loja livre encontrada no momento.
+          )}
+        </div>
+      </div>
+
+      {modalPlat ? (
+        <div className="modal-backdrop" onClick={() => setModalPlat(null)}>
+          <div className="modal" style={{ maxWidth: 520, width: '92%' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>
+                  Lojas disponíveis — {modalPlat === 'IFOOD' ? 'iFood' : '99Food'}
+                </h3>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Escolha qual loja autorizada deseja vincular a este CNPJ.
+                </span>
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {[...livresIfood, ...livres99].map((l) => (
+              <button type="button" className="btn-icon" onClick={() => setModalPlat(null)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {buscandoLivres ? (
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
+                  Consultando lojas disponíveis na plataforma {modalPlat === 'IFOOD' ? 'iFood' : '99Food'}...
+                </div>
+              ) : (modalPlat === 'IFOOD' ? livresIfood : livres99).length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>
+                  Nenhuma loja livre encontrada para {modalPlat === 'IFOOD' ? 'iFood' : '99Food'} no momento.
+                </div>
+              ) : (
+                (modalPlat === 'IFOOD' ? livresIfood : livres99).map((l) => (
                   <div
                     key={`${l.plataforma}-${l.loja}`}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
+                      gap: 10,
                       padding: 10,
                       border: '1px solid var(--border)',
                       borderRadius: 8,
                     }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>
-                        {l.nome || l.loja} <span className="pill">{l.plataforma}</span>
-                      </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600 }}>{l.nome || l.loja}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', wordBreak: 'break-all' }}>{l.loja}</div>
                     </div>
                     <button
                       type="button"
                       className="btn btn-sm btn-primary"
                       disabled={ocupadoLoja === l.loja}
-                      onClick={() => vincular(l.plataforma, l.loja)}
+                      onClick={() => void vincular(l.plataforma, l.loja)}
                     >
-                      Vincular loja
+                      {ocupadoLoja === l.loja ? 'Vinculando...' : 'Vincular'}
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Passo 3: Status e Pausas Programadas */}
       <div className="card">

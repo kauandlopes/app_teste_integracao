@@ -124,7 +124,8 @@ export const erpApi = {
   conectarCnpj: (dados: { cnpj: string; nome: string; transporte: 'PULL' | 'PUSH'; webhookUrl?: string }) =>
     req('/conectar-cnpj', { method: 'POST', body: JSON.stringify(dados) }),
   recuperarToken: () => req<{ conexaoId: string; token: string; cnpj: string }>('/recuperar-token', { method: 'POST' }),
-  lojasLivres: () => req<{ ifood: any[]; ninenine: any[]; avisos?: any }>('/lojas-livres'),
+  lojasLivres: (plataforma?: 'IFOOD' | '99FOOD') =>
+    req<any>(`/lojas-livres${plataforma ? `?plataforma=${encodeURIComponent(plataforma)}` : ''}`),
   vincularLoja: (plataforma: string, loja: string) =>
     req('/lojas/vincular', { method: 'POST', body: JSON.stringify({ plataforma, loja }) }),
   liberarLoja: (plataforma: string, loja: string) =>

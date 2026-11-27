@@ -201,24 +201,6 @@ export function criarApp() {
       }
     }
 
-    // Auto-vinculo: se so existir loja livre disponivel, vincular sem intervencao
-    const disponiveis: Array<{ plataforma: string; loja: string; nome: string }> = [
-      ...(Array.isArray(r.json.lojasDisponiveis?.ifood) ? r.json.lojasDisponiveis.ifood : []),
-      ...(Array.isArray(r.json.lojasDisponiveis?.ninenine) ? r.json.lojasDisponiveis.ninenine : []),
-    ];
-    const jaAtivas = new Set((r.json.lojas ?? []).filter((l: any) => l.estado === 'ATIVA').map((l: any) => l.loja));
-    const paraVincular = disponiveis.filter((l) => !jaAtivas.has(l.loja));
-    for (const loja of paraVincular) {
-      const rv = await hubFetch<any>('/hub/v1/conexao/lojas', {
-        metodo: 'POST',
-        tokenTipo: 'conexao',
-        body: { plataforma: loja.plataforma, loja: loja.loja },
-      });
-      if (rv.ok && rv.json) {
-        atualizarConfig({ estadoConexao: rv.json.estado ?? '', lojasVinculadasJson: JSON.stringify(rv.json.lojas ?? []) });
-      }
-    }
-
     const respostaFinal = obterConfig();
     res.status(r.status).json({
       ...r.json,
@@ -237,8 +219,9 @@ export function criarApp() {
     res.json(r.json);
   });
 
-  api.get('/lojas-livres', async (_req, res) => {
-    const r = await hubFetch('/hub/v1/conexao/lojas-disponiveis', { tokenTipo: 'conexao' });
+  api.get('/lojas-livres', async (req, res) => {
+    const plat = typeof req.query.plataforma === 'string' && req.query.plataforma ? `?plataforma=${encodeURIComponent(req.query.plataforma)}` : '';
+    const r = await hubFetch(`/hub/v1/conexao/lojas-disponiveis${plat}`, { tokenTipo: 'conexao' });
     res.status(r.status || 502).json(r.json ?? { erro: r.text });
   });
 
