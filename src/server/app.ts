@@ -653,20 +653,27 @@ export function criarApp() {
         `).run(String(cat.id), plat, String(cat.nome ?? 'Sem nome'), String(cat.status ?? 'AVAILABLE'), Number(cat.ordem ?? idx), JSON.stringify(cat), agora);
 
         (Array.isArray(cat.itens) ? cat.itens : []).forEach((it: any, itIdx: number) => {
-          const gruposNormalizados = (Array.isArray(it.grupos) ? it.grupos : []).map((g: any) => ({
-            id: g.id,
-            name: g.nome ?? g.name ?? 'Complementos',
-            min: Number(g.min ?? 0),
-            max: Number(g.max ?? 1),
-            status: g.status ?? 'AVAILABLE',
-            options: (Array.isArray(g.opcoes) ? g.opcoes : Array.isArray(g.options) ? g.options : []).map((op: any) => ({
-              id: op.id,
-              name: op.nome ?? op.name ?? 'Opção',
-              externalCode: op.sku ?? op.externalCode ?? '',
-              status: op.status ?? 'AVAILABLE',
-              price: { value: Number(op.preco ?? op.price?.value ?? 0) },
-            })),
-          }));
+          const mapearGrupos = (lista: any[]): any[] =>
+            (Array.isArray(lista) ? lista : []).map((g: any) => ({
+              id: g.id,
+              name: g.nome ?? g.name ?? 'Complementos',
+              tipoGrupo: g.tipoGrupo ?? 'DEFAULT',
+              obrigatorio: Boolean(g.obrigatorio ?? Number(g.min ?? 0) > 0),
+              min: Number(g.min ?? 0),
+              max: Number(g.max ?? 1),
+              status: g.status ?? 'AVAILABLE',
+              options: (Array.isArray(g.opcoes) ? g.opcoes : Array.isArray(g.options) ? g.options : []).map((op: any) => ({
+                id: op.id,
+                name: op.nome ?? op.name ?? 'Opção',
+                externalCode: op.sku ?? op.externalCode ?? '',
+                status: op.status ?? 'AVAILABLE',
+                price: { value: Number(op.preco ?? op.price?.value ?? 0) },
+                ...(Array.isArray(op.fracoes) ? { fracoes: op.fracoes } : {}),
+                ...(op.parentOptionId ? { parentOptionId: op.parentOptionId } : {}),
+                ...(Array.isArray(op.subgrupos) && op.subgrupos.length ? { subgrupos: mapearGrupos(op.subgrupos) } : {}),
+              })),
+            }));
+          const gruposNormalizados = mapearGrupos(it.grupos);
           db.prepare(`
             INSERT OR REPLACE INTO catalogo_itens (id, categoriaId, plataforma, nome, descricao, sku, preco, status, ordem, gruposJson, payloadJson, atualizadoEm)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -715,10 +722,11 @@ export function criarApp() {
   });
 
   api.post('/catalogo/categorias', async (req, res) => {
-    const r = await hubFetch<any>('/hub/v1/conexao/catalogo/categorias', {
+    const plat = String(req.body?.plataforma ?? req.query.plataforma ?? 'IFOOD').toUpperCase();
+    const r = await hubFetch<any>(`/hub/v1/conexao/catalogo/categorias?plataforma=${encodeURIComponent(plat)}`, {
       metodo: 'POST',
       tokenTipo: 'conexao',
-      body: { name: req.body?.nome ?? req.body?.name, status: req.body?.status ?? 'AVAILABLE', template: 'DEFAULT' },
+      body: { name: req.body?.nome ?? req.body?.name, status: req.body?.status ?? 'AVAILABLE', template: req.body?.template ?? 'DEFAULT' },
     });
     if (!r.ok) return res.status(r.status || 400).json(r.json ?? { erro: r.text });
     await sincronizarCatalogoNoSqlite();
@@ -726,12 +734,13 @@ export function criarApp() {
   });
 
   api.patch('/catalogo/categorias/:id', async (req, res) => {
+    const plat = String(req.body?.plataforma ?? req.query.plataforma ?? 'IFOOD').toUpperCase();
     const body: Record<string, unknown> = {};
     if (req.body?.status) body.status = req.body.status;
     if (req.body?.nome || req.body?.name) body.name = req.body.nome ?? req.body.name;
     if (req.body?.sequence !== undefined) body.sequence = req.body.sequence;
 
-    const r = await hubFetch(`/hub/v1/conexao/catalogo/categorias/${encodeURIComponent(req.params.id)}`, {
+    const r = await hubFetch(`/hub/v1/conexao/catalogo/categorias/${encodeURIComponent(req.params.id)}?plataforma=${encodeURIComponent(plat)}`, {
       metodo: 'PATCH',
       tokenTipo: 'conexao',
       body,
