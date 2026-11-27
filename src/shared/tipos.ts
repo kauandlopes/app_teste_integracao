@@ -140,7 +140,14 @@ export interface MotivoCancelamento {
 
 // ── Cardapio ─────────────────────────────────────────────────────────────────
 
+/** Plataformas que podem ter preco proprio. aiqfome e Keeta ficam guardadas para as proximas integracoes. */
+export const PLATAFORMAS_PRECO = ['IFOOD', '99FOOD', 'AIQFOME', 'KEETA'] as const;
+export type PlataformaPreco = (typeof PLATAFORMAS_PRECO)[number];
+/** Opcional: so existe a chave preenchida. Plataforma sem chave usa o preco padrao. */
+export type PrecosPlataforma = Partial<Record<PlataformaPreco, number>>;
+
 export interface OpcaoProduto {
+  precosPlataforma?: PrecosPlataforma;
   codigo: string;
   nome: string;
   preco: number;
@@ -156,6 +163,8 @@ export interface GrupoProduto {
 }
 
 export interface TamanhoPizza {
+  precosPlataforma?: PrecosPlataforma;
+  disponivel: boolean;
   codigo: string;
   nome: string;
   preco: number;
@@ -164,6 +173,8 @@ export interface TamanhoPizza {
 }
 
 export interface SaborPizza {
+  /** Substitui o acrescimo (inclusive o por tamanho) naquela plataforma. */
+  precosPlataforma?: PrecosPlataforma;
   codigo: string;
   nome: string;
   acrescimo: number;
@@ -172,6 +183,7 @@ export interface SaborPizza {
 }
 
 export interface ComplementoPizza {
+  precosPlataforma?: PrecosPlataforma;
   codigo: string;
   nome: string;
   preco: number;
@@ -192,8 +204,10 @@ export interface ProdutoErp {
   nome: string;
   categoria: string;
   descricao: string;
-  tipo: 'SIMPLES' | 'PIZZA';
+  /** COMBO: cada grupo e uma etapa de escolha e o primeiro e o principal. */
+  tipo: 'SIMPLES' | 'PIZZA' | 'COMBO';
   preco: number;
+  precosPlataforma?: PrecosPlataforma;
   disponivel: boolean;
   /** data:image/... ou URL https (URL vale so para a 99Food). Vazio mantem a foto atual na plataforma. */
   foto: string;

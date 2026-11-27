@@ -128,8 +128,9 @@ export function ModalPedido({
   const principais = p.acoes.filter((a) => a.tipo !== 'avancada');
   const avancadas = p.acoes.filter((a) => a.tipo === 'avancada');
   const { disputa, cancelamentoCliente, reembolso, cancelamentoLoja } = p.pendencias;
-  // So os tipos que a propria disputa oferece
-  const contrapropostas = [...new Set((disputa?.alternativas ?? []).map((a: any) => a?.type as string))].filter((t) => CONTRAPROPOSTAS[t]);
+  // So as alternativas que a propria disputa oferece
+  const contrapropostas = ((disputa?.alternativas ?? []) as Array<{ id?: string; type?: string }>).filter((a) => !!a?.id && !!CONTRAPROPOSTAS[a.type ?? '']);
+  const alternativa = contrapropostas.find((a) => a.id === campo('alternativeId'));
 
   return (
     <div className="modal-backdrop" onClick={aoFechar}>
@@ -186,16 +187,16 @@ export function ModalPedido({
               {p.plataforma === 'IFOOD' && !p.simulado && contrapropostas.length ? (
                 <div className="linha">
                   <span className="field-label">Contraproposta</span>
-                  <select className="select input-sm" style={{ width: 200 }} value={campo('tipo')} onChange={(e) => definir('tipo', e.target.value)}>
-                    <option value="">Escolha o tipo</option>
-                    {contrapropostas.map((t) => (
-                      <option key={t} value={t}>
-                        {CONTRAPROPOSTAS[t]}
+                  <select className="select input-sm" style={{ width: 220 }} value={campo('alternativeId')} onChange={(e) => definir('alternativeId', e.target.value)}>
+                    <option value="">Escolha a alternativa</option>
+                    {contrapropostas.map((a, n) => (
+                      <option key={a.id} value={a.id}>
+                        {CONTRAPROPOSTAS[a.type!]} ({n + 1})
                       </option>
                     ))}
                   </select>
-                  {campo('tipo') === 'REFUND' ? <input className="input input-sm preco" inputMode="decimal" placeholder="Valor R$" value={campo('valor')} onChange={(e) => definir('valor', e.target.value)} /> : null}
-                  {campo('tipo') === 'ADDITIONAL_TIME' ? (
+                  {alternativa?.type === 'REFUND' ? <input className="input input-sm preco" inputMode="decimal" placeholder="Valor R$" value={campo('valor')} onChange={(e) => definir('valor', e.target.value)} /> : null}
+                  {alternativa?.type === 'ADDITIONAL_TIME' ? (
                     <>
                       <input className="input input-sm preco" type="number" min={1} placeholder="Minutos" value={campo('minutos')} onChange={(e) => definir('minutos', e.target.value)} />
                       <input className="input input-sm" style={{ width: 220 }} placeholder="Motivo (código do iFood)" value={campo('motivoTempo')} onChange={(e) => definir('motivoTempo', e.target.value)} />
@@ -204,8 +205,8 @@ export function ModalPedido({
                   <button
                     type="button"
                     className="btn btn-sm"
-                    disabled={ocupado || !campo('tipo')}
-                    onClick={() => executar('counterOffer', { tipo: campo('tipo'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo'), idPendencia: disputa.id })}
+                    disabled={ocupado || !alternativa}
+                    onClick={() => executar('counterOffer', { alternativeId: campo('alternativeId'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo'), idPendencia: disputa.id })}
                   >
                     Enviar contraproposta
                   </button>

@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
-import { erpApi, lerPreco, mensagemDe, ProdutoErp } from '../api';
+import { erpApi, lerPreco, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
 import { IconeFechar } from './Icones';
 
 /**
- * Cadastro de produto (simples ou pizza). Um unico formulario: ao salvar, o ERP grava e envia ao iFood e a 99Food.
+ * Cadastro de produto (simples, pizza ou combo). Um unico formulario: ao salvar, o ERP grava e envia ao iFood e a 99Food.
  * Precos ficam como texto enquanto sao editados.
  */
+/** Precos proprios de uma plataforma, como texto; campo vazio nao e enviado. */
+type Precos = Partial<Record<PlataformaPreco, string>>;
+const ROTULO_PLATAFORMA: Record<PlataformaPreco, string> = { IFOOD: 'iFood', '99FOOD': '99Food', AIQFOME: 'aiqfome', KEETA: 'Keeta' };
+
 interface Opcao {
+  precos: Precos;
   codigo?: string;
   nome: string;
   preco: string;
@@ -20,6 +25,8 @@ interface Grupo {
   opcoes: Opcao[];
 }
 interface Tamanho {
+  precos: Precos;
+  disponivel: boolean;
   codigo: string;
   nome: string;
   preco: string;
@@ -27,6 +34,7 @@ interface Tamanho {
   maxSabores: string;
 }
 interface Sabor {
+  precos: Precos;
   codigo?: string;
   nome: string;
   acrescimo: string;
@@ -38,8 +46,11 @@ interface Form {
   nome: string;
   categoria: string;
   descricao: string;
-  tipo: 'SIMPLES' | 'PIZZA';
+  tipo: ProdutoErp['tipo'];
   preco: string;
+  precos: Precos;
+  /** Mostra os campos de preco por plataforma (escondidos por padrao). */
+  porPlataforma: boolean;
   disponivel: boolean;
   foto: string;
   grupos: Grupo[];
@@ -53,23 +64,34 @@ interface Form {
 
 const aleatorio = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const dinheiro = (n: number) => String(n).replace('.', ',');
-const opcaoVazia = (): Opcao => ({ nome: '', preco: '0', disponivel: true });
-const tamanhoNovo = (): Tamanho => ({ codigo: `TAM-${aleatorio()}`, nome: '', preco: '', pedacos: '8', maxSabores: '2' });
-const saborNovo = (): Sabor => ({ nome: '', acrescimo: '0', porTamanho: {}, disponivel: true });
+const opcaoVazia = (): Opcao => ({ nome: '', preco: '0', disponivel: true, precos: {} });
+const tamanhoNovo = (): Tamanho => ({ codigo: `TAM-${aleatorio()}`, nome: '', preco: '', pedacos: '8', maxSabores: '2', disponivel: true, precos: {} });
+const saborNovo = (): Sabor => ({ nome: '', acrescimo: '0', porTamanho: {}, disponivel: true, precos: {} });
+const grupoNovo = (combo: boolean): Grupo => ({ nome: '', min: combo ? '1' : '0', max: '1', opcoes: [opcaoVazia()] });
 
-function paraForm(p: ProdutoErp | null, tipo: 'SIMPLES' | 'PIZZA'): Form {
-  const complemento = (o: { codigo: string; nome: string; preco: number; disponivel: boolean }): Opcao => ({ ...o, preco: dinheiro(o.preco) });
+const paraTexto = (p?: PrecosPlataforma): Precos => Object.fromEntries(Object.entries(p ?? {}).map(([k, v]) => [k, dinheiro(v)]));
+/** So as plataformas preenchidas; nenhuma preenchida significa nao enviar o campo. */
+function precosPreenchidos(ligado: boolean, precos: Precos): { precosPlataforma?: PrecosPlataforma } {
+  if (!ligado) return {};
+  const lista = PLATAFORMAS_PRECO.filter((k) => precos[k]?.trim()).map((k) => [k, lerPreco(precos[k]!)]);
+  return lista.length ? { precosPlataforma: Object.fromEntries(lista) as PrecosPlataforma } : {};
+}
+
+function paraForm(p: ProdutoErp | null, tipo: ProdutoErp['tipo']): Form {
+  const complemento = (o: { codigo: string; nome: string; preco: number; disponivel: boolean; precosPlataforma?: PrecosPlataforma }): Opcao => ({ ...o, preco: dinheiro(o.preco), precos: paraTexto(o.precosPlataforma) });
   if (!p) {
     return {
       codigo: '',
       nome: '',
-      categoria: tipo === 'PIZZA' ? 'Pizzas' : '',
+      categoria: tipo === 'PIZZA' ? 'Pizzas' : tipo === 'COMBO' ? 'Combos' : '',
       descricao: '',
       tipo,
       preco: '',
+      precos: {},
+      porPlataforma: false,
       disponivel: true,
       foto: '',
-      grupos: [],
+      grupos: tipo === 'COMBO' ? [grupoNovo(true)] : [],
       tamanhos: [tamanhoNovo()],
       sabores: [saborNovo()],
       massas: [],
@@ -85,10 +107,12 @@ function paraForm(p: ProdutoErp | null, tipo: 'SIMPLES' | 'PIZZA'): Form {
     descricao: p.descricao,
     tipo: p.tipo,
     preco: dinheiro(p.preco),
+    precos: paraTexto(p.precosPlataforma),
+    porPlataforma: JSON.stringify(p).includes('"precosPlataforma"'),
     disponivel: p.disponivel,
     foto: p.foto,
     grupos: p.grupos.map((g) => ({ codigo: g.codigo, nome: g.nome, min: String(g.min), max: String(g.max), opcoes: g.opcoes.map(complemento) })),
-    tamanhos: p.pizza?.tamanhos.map((t) => ({ codigo: t.codigo, nome: t.nome, preco: dinheiro(t.preco), pedacos: String(t.pedacos ?? ''), maxSabores: String(t.maxSabores) })) ?? [tamanhoNovo()],
+    tamanhos: p.pizza?.tamanhos.map((t) => ({ codigo: t.codigo, nome: t.nome, preco: dinheiro(t.preco), pedacos: String(t.pedacos ?? ''), maxSabores: String(t.maxSabores), disponivel: t.disponivel !== false, precos: paraTexto(t.precosPlataforma) })) ?? [tamanhoNovo()],
     sabores:
       p.pizza?.sabores.map((s) => ({
         codigo: s.codigo,
@@ -96,6 +120,7 @@ function paraForm(p: ProdutoErp | null, tipo: 'SIMPLES' | 'PIZZA'): Form {
         acrescimo: dinheiro(s.acrescimo),
         porTamanho: Object.fromEntries(Object.entries(s.acrescimoPorTamanho ?? {}).map(([k, v]) => [k, dinheiro(v)])),
         disponivel: s.disponivel,
+        precos: paraTexto(s.precosPlataforma),
       })) ?? [saborNovo()],
     massas: p.pizza?.massas.map(complemento) ?? [],
     bordas: p.pizza?.bordas.map(complemento) ?? [],
@@ -105,7 +130,8 @@ function paraForm(p: ProdutoErp | null, tipo: 'SIMPLES' | 'PIZZA'): Form {
 }
 
 function paraProduto(f: Form) {
-  const opcao = (o: Opcao) => ({ codigo: o.codigo, nome: o.nome, preco: lerPreco(o.preco || '0'), disponivel: o.disponivel });
+  const precos = (v: Precos) => precosPreenchidos(f.porPlataforma, v);
+  const opcao = (o: Opcao) => ({ codigo: o.codigo, nome: o.nome, preco: lerPreco(o.preco || '0'), disponivel: o.disponivel, ...precos(o.precos) });
   return {
     codigo: f.codigo.trim(),
     nome: f.nome,
@@ -113,18 +139,20 @@ function paraProduto(f: Form) {
     descricao: f.descricao,
     tipo: f.tipo,
     preco: lerPreco(f.preco || '0'),
+    ...(f.tipo === 'PIZZA' ? {} : precos(f.precos)),
     disponivel: f.disponivel,
     foto: f.foto,
     grupos: f.grupos.map((g) => ({ codigo: g.codigo, nome: g.nome, min: Number(g.min), max: Number(g.max), opcoes: g.opcoes.map(opcao) })),
     pizza:
       f.tipo === 'PIZZA'
         ? {
-            tamanhos: f.tamanhos.map((t) => ({ codigo: t.codigo, nome: t.nome, preco: lerPreco(t.preco || '0'), pedacos: Number(t.pedacos) || undefined, maxSabores: Number(t.maxSabores) || 1 })),
+            tamanhos: f.tamanhos.map((t) => ({ codigo: t.codigo, nome: t.nome, preco: lerPreco(t.preco || '0'), pedacos: Number(t.pedacos) || undefined, maxSabores: Number(t.maxSabores) || 1, disponivel: t.disponivel, ...precos(t.precos) })),
             sabores: f.sabores.map((s) => ({
               codigo: s.codigo,
               nome: s.nome,
               acrescimo: lerPreco(s.acrescimo || '0'),
               disponivel: s.disponivel,
+              ...precos(s.precos),
               ...(f.precoPorTamanho
                 ? { acrescimoPorTamanho: Object.fromEntries(f.tamanhos.map((t) => [t.codigo, lerPreco(s.porTamanho[t.codigo] ?? s.acrescimo ?? '0')])) }
                 : {}),
@@ -166,13 +194,28 @@ async function prepararFoto(arquivo: File): Promise<string> {
   }
 }
 
+/** Um campo por plataforma; vazio usa o preco padrao. */
+function CamposPlataforma({ precos, padrao, mudar }: { precos: Precos; padrao: string; mudar: (p: Precos) => void }) {
+  return (
+    <div className="linha precos-plataforma">
+      {PLATAFORMAS_PRECO.map((k) => (
+        <label className="field" key={k}>
+          <span className="field-label">{ROTULO_PLATAFORMA[k]}</span>
+          <input className="input input-sm preco" inputMode="decimal" placeholder={padrao || 'padrão'} value={precos[k] ?? ''} onChange={(e) => mudar({ ...precos, [k]: e.target.value })} />
+        </label>
+      ))}
+    </div>
+  );
+}
+
 /** Lista simples de opcoes (nome, preco, pausa), usada em grupos, massas e bordas. */
-function ListaOpcoes({ opcoes, mudar, rotulo }: { opcoes: Opcao[]; mudar: (o: Opcao[]) => void; rotulo: string }) {
+function ListaOpcoes({ opcoes, mudar, rotulo, porPlataforma }: { opcoes: Opcao[]; mudar: (o: Opcao[]) => void; rotulo: string; porPlataforma: boolean }) {
   const alterar = (i: number, parte: Partial<Opcao>) => mudar(opcoes.map((o, j) => (j === i ? { ...o, ...parte } : o)));
   return (
     <div className="pilha">
       {opcoes.map((o, i) => (
-        <div className="linha-opcao" key={i}>
+        <div className="pilha" key={i}>
+        <div className="linha-opcao">
           <input className="input input-sm" placeholder={`Nome (${rotulo.toLowerCase()})`} value={o.nome} onChange={(e) => alterar(i, { nome: e.target.value })} required />
           <input className="input input-sm preco" inputMode="decimal" placeholder="R$" title="Preço adicional" value={o.preco} onChange={(e) => alterar(i, { preco: e.target.value })} />
           <label className="chave">
@@ -182,6 +225,8 @@ function ListaOpcoes({ opcoes, mudar, rotulo }: { opcoes: Opcao[]; mudar: (o: Op
           <button type="button" className="btn btn-sm btn-danger" onClick={() => mudar(opcoes.filter((_, j) => j !== i))}>
             Remover
           </button>
+        </div>
+        {porPlataforma ? <CamposPlataforma precos={o.precos} padrao={o.preco} mudar={(precos) => alterar(i, { precos })} /> : null}
         </div>
       ))}
       <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => mudar([...opcoes, opcaoVazia()])}>
@@ -200,7 +245,7 @@ export function EditorProduto({
   notificar,
 }: {
   produto: ProdutoErp | null;
-  tipo: 'SIMPLES' | 'PIZZA';
+  tipo: ProdutoErp['tipo'];
   categorias: string[];
   aoFechar: () => void;
   aoSalvar: () => Promise<void>;
@@ -212,6 +257,7 @@ export function EditorProduto({
   const mudar = (parte: Partial<Form>) => setF((atual) => ({ ...atual, ...parte }));
   const item = <T,>(lista: T[], i: number, parte: Partial<T>) => lista.map((x, j) => (j === i ? { ...x, ...parte } : x));
   const ehPizza = f.tipo === 'PIZZA';
+  const ehCombo = f.tipo === 'COMBO';
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
@@ -245,7 +291,7 @@ export function EditorProduto({
     <div className="modal-backdrop">
       <form className="modal-panel wide" onSubmit={salvar}>
         <div className="modal-head">
-          <h2 style={{ margin: 0, fontSize: 16 }}>{produto ? `Editar ${produto.nome}` : ehPizza ? 'Nova pizza' : 'Novo produto'}</h2>
+          <h2 style={{ margin: 0, fontSize: 16 }}>{produto ? `Editar ${produto.nome}` : ehPizza ? 'Nova pizza' : ehCombo ? 'Novo combo' : 'Novo produto'}</h2>
           <button type="button" className="btn-icon" onClick={aoFechar} title="Fechar">
             <IconeFechar />
           </button>
@@ -296,7 +342,17 @@ export function EditorProduto({
               <input type="checkbox" checked={f.disponivel} onChange={(e) => mudar({ disponivel: e.target.checked })} />
               Disponível para venda
             </label>
+            <label className="chave">
+              <input type="checkbox" checked={f.porPlataforma} onChange={(e) => mudar({ porPlataforma: e.target.checked })} />
+              Preço diferente por plataforma
+            </label>
           </div>
+          {f.porPlataforma ? (
+            <div className="banner banner-warn">
+              Opcional: preencha só onde o preço muda; campo vazio usa o preço padrão. Desmarcar apaga os preços por plataforma ao salvar. O Hub ainda está preparando o suporte: até ser publicado, vale o preço padrão em todas.
+            </div>
+          ) : null}
+          {f.porPlataforma && !ehPizza ? <CamposPlataforma precos={f.precos} padrao={f.preco} mudar={(precos) => mudar({ precos })} /> : null}
 
           {ehPizza ? (
             <>
@@ -304,7 +360,8 @@ export function EditorProduto({
                 <h3>Tamanhos</h3>
                 <p className="suave">O preço do tamanho é o preço final da pizza. Sabores, massas e bordas somam a ele.</p>
                 {f.tamanhos.map((t, i) => (
-                  <div className="linha-tamanho" key={t.codigo}>
+                  <div className="pilha" key={t.codigo}>
+                  <div className="linha-tamanho">
                     <label className="field">
                       <span className="field-label">Nome</span>
                       <input className="input input-sm" placeholder="Grande" value={t.nome} onChange={(e) => mudar({ tamanhos: item(f.tamanhos, i, { nome: e.target.value }) })} required />
@@ -327,9 +384,15 @@ export function EditorProduto({
                         ))}
                       </select>
                     </label>
+                    <label className="chave">
+                      <input type="checkbox" checked={t.disponivel} onChange={(e) => mudar({ tamanhos: item(f.tamanhos, i, { disponivel: e.target.checked }) })} />
+                      Disponível
+                    </label>
                     <button type="button" className="btn btn-sm btn-danger" disabled={f.tamanhos.length === 1} onClick={() => mudar({ tamanhos: f.tamanhos.filter((_, j) => j !== i) })}>
                       Remover
                     </button>
+                  </div>
+                  {f.porPlataforma ? <CamposPlataforma precos={t.precos} padrao={t.preco} mudar={(precos) => mudar({ tamanhos: item(f.tamanhos, i, { precos }) })} /> : null}
                   </div>
                 ))}
                 <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => mudar({ tamanhos: [...f.tamanhos, tamanhoNovo()] })}>
@@ -349,7 +412,8 @@ export function EditorProduto({
                   <div className="banner banner-warn">Na 99Food, acréscimos diferentes por tamanho publicam um item separado para cada tamanho. Com o mesmo acréscimo em todos, sai um item só.</div>
                 ) : null}
                 {f.sabores.map((s, i) => (
-                  <div className="linha-opcao" key={i}>
+                  <div className="pilha" key={i}>
+                  <div className="linha-opcao">
                     <input className="input input-sm" placeholder="Nome do sabor" value={s.nome} onChange={(e) => mudar({ sabores: item(f.sabores, i, { nome: e.target.value }) })} required />
                     {f.precoPorTamanho ? (
                       f.tamanhos.map((t) => (
@@ -374,6 +438,8 @@ export function EditorProduto({
                       Remover
                     </button>
                   </div>
+                  {f.porPlataforma ? <CamposPlataforma precos={s.precos} padrao={s.acrescimo} mudar={(precos) => mudar({ sabores: item(f.sabores, i, { precos }) })} /> : null}
+                  </div>
                 ))}
                 <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => mudar({ sabores: [...f.sabores, saborNovo()] })}>
                   Adicionar sabor
@@ -383,7 +449,7 @@ export function EditorProduto({
               <section className="secao">
                 <h3>Massas</h3>
                 <p className="suave">Sem massa cadastrada, o iFood recebe a massa Tradicional.</p>
-                <ListaOpcoes rotulo="Massa" opcoes={f.massas} mudar={(massas) => mudar({ massas })} />
+                <ListaOpcoes porPlataforma={f.porPlataforma} rotulo="Massa" opcoes={f.massas} mudar={(massas) => mudar({ massas })} />
               </section>
               <section className="secao">
                 <div className="linha">
@@ -393,14 +459,14 @@ export function EditorProduto({
                     Escolha obrigatória
                   </label>
                 </div>
-                <ListaOpcoes rotulo="Borda" opcoes={f.bordas} mudar={(bordas) => mudar({ bordas })} />
+                <ListaOpcoes porPlataforma={f.porPlataforma} rotulo="Borda" opcoes={f.bordas} mudar={(bordas) => mudar({ bordas })} />
               </section>
             </>
           ) : null}
 
           <section className="secao">
-            <h3>{ehPizza ? 'Grupos extras' : 'Complementos e adicionais'}</h3>
-            <p className="suave">Mínimo maior que zero torna o grupo obrigatório.</p>
+            <h3>{ehPizza ? 'Grupos extras' : ehCombo ? 'Etapas do combo' : 'Complementos e adicionais'}</h3>
+            <p className="suave">{ehCombo ? 'Cada grupo é uma etapa de escolha; a primeira é a principal. O preço do combo é o do campo Preço.' : 'Mínimo maior que zero torna o grupo obrigatório.'}</p>
             {f.grupos.map((g, i) => (
               <div className="card pilha" key={i}>
                 <div className="linha-grupo">
@@ -420,10 +486,10 @@ export function EditorProduto({
                     Remover grupo
                   </button>
                 </div>
-                <ListaOpcoes rotulo="Opção" opcoes={g.opcoes} mudar={(opcoes) => mudar({ grupos: item(f.grupos, i, { opcoes }) })} />
+                <ListaOpcoes porPlataforma={f.porPlataforma} rotulo="Opção" opcoes={g.opcoes} mudar={(opcoes) => mudar({ grupos: item(f.grupos, i, { opcoes }) })} />
               </div>
             ))}
-            <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => mudar({ grupos: [...f.grupos, { nome: '', min: '0', max: '1', opcoes: [opcaoVazia()] }] })}>
+            <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => mudar({ grupos: [...f.grupos, grupoNovo(ehCombo)] })}>
               Adicionar grupo
             </button>
           </section>

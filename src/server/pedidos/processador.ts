@@ -227,16 +227,18 @@ export function dadosDaAcao(p: RegistroPedido, acao: string, entrada: Record<str
     }
     case 'counterOffer': {
       if (!pend.disputa) throw new ErroDeAcao(409, 'Não há disputa aberta.');
-      const tipo = texto(e.tipo);
-      if (!pend.disputa.alternativas.some((a: any) => a?.type === tipo)) throw new ErroDeAcao(400, 'Esta disputa não aceita esse tipo de contraproposta.');
-      if (tipo === 'REFUND') {
+      // A alternativa escolhida vem do evento da disputa: o Hub exige o id dela
+      const alternativa = (pend.disputa.alternativas as Array<{ id?: string; type?: string }>).find((a) => !!a?.id && a.id === texto(e.alternativeId));
+      if (!alternativa) throw new ErroDeAcao(400, 'Escolha uma das alternativas oferecidas pela disputa.');
+      const base = { disputeId: pend.disputa.id, alternativeId: alternativa.id, type: alternativa.type };
+      if (alternativa.type === 'REFUND') {
         const centavos = Math.round(Number(String(e.valor ?? '').replace(',', '.')) * 100);
         if (!(centavos > 0)) throw new ErroDeAcao(400, 'Informe o valor do reembolso proposto.');
-        return { disputeId: pend.disputa.id, type: tipo, metadata: { amount: { value: String(centavos), currency: 'BRL' } } };
+        return { ...base, metadata: { amount: { value: String(centavos), currency: 'BRL' } } };
       }
       const minutos = Math.floor(Number(e.minutos));
-      if (tipo !== 'ADDITIONAL_TIME' || !(minutos > 0) || !texto(e.motivoTempo)) throw new ErroDeAcao(400, 'Informe os minutos e o motivo do tempo adicional.');
-      return { disputeId: pend.disputa.id, type: tipo, metadata: { additionalTimeInMinutes: minutos, additionalTimeReason: texto(e.motivoTempo) } };
+      if (alternativa.type !== 'ADDITIONAL_TIME' || !(minutos > 0) || !texto(e.motivoTempo)) throw new ErroDeAcao(400, 'Informe os minutos e o motivo do tempo adicional.');
+      return { ...base, metadata: { additionalTimeInMinutes: minutos, additionalTimeReason: texto(e.motivoTempo) } };
     }
     case 'acceptRefund':
     case 'denyRefund': {

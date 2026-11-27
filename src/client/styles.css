@@ -634,6 +634,12 @@ button {
   width: 130px;
 }
 
+.precos-plataforma {
+  align-items: flex-end;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+
 .miniatura {
   width: 44px;
   height: 44px;

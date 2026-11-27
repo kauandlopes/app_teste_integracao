@@ -93,7 +93,7 @@ Outras ações:
 | Situação | Ação | `dados` |
 |---|---|---|
 | Disputa iFood | `acceptCancellation` / `denyCancellation` | `{disputeId, detailReason?}` |
-| Contraproposta iFood | `counterOffer` | `{disputeId, type: "REFUND" ou "ADDITIONAL_TIME", metadata}` (só os tipos em `alternatives` da disputa) |
+| Contraproposta iFood | `counterOffer` | `{disputeId, alternativeId, type, metadata}` (a alternativa vem em `alternatives` da disputa) |
 | Cancelamento do cliente 99Food | idem | `{applyId, reason?}` (motivo da lista recebida) |
 | Reembolso 99Food | `acceptRefund` / `denyRefund` | `{applyId}` / `{applyId, baseReasonId, baseReason, reason?}` |
 
@@ -130,4 +130,4 @@ etapa atual gravada, seguindo a mesma matriz.
 - O Hub arredonda inteiros de 64 bits no detalhe da 99Food; o ERP usa o id que veio no evento. Linhas com `mdu_id`
   arredondado não aparecem em "item em falta".
 - No iFood a conclusão é feita pela plataforma; "Concluir" fecha o pedido apenas no ERP.
-- A contraproposta ainda não foi validada em homologação: o Hub não envia o id da alternativa escolhida.
+- A contraproposta ainda não foi validada em homologação.

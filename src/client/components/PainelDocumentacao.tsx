@@ -286,6 +286,13 @@ Authorization: Bearer {tokenConexao_hubi}`}
     "opcoes": [{ "codigo": "COCA", "nome": "Coca-Cola", "preco": 8, "disponivel": true }] }]
 }`}
           </pre>
+          <p style={{ margin: 0, fontSize: 13 }}>
+            <strong>Preço por plataforma (opcional):</strong> <code>preco</code> é o padrão. Envie <code>precosPlataforma</code> somente com as chaves preenchidas (
+            <code>IFOOD</code>, <code>99FOOD</code>, <code>AIQFOME</code>, <code>KEETA</code>) em produto, adicional, tamanho, sabor, massa ou borda. O Hub ainda está preparando o suporte.
+          </p>
+          <p style={{ margin: 0, fontSize: 13 }}>
+            <strong>Combo:</strong> <code>tipo: "COMBO"</code>, preço no produto e um grupo por etapa (o primeiro é o principal).
+          </p>
           <p className="suave" style={{ margin: 0 }}>Na 99Food a publicação reenvia o cardápio inteiro da loja: teste publicação apenas em loja de teste.</p>
         </div>
       ) : null}

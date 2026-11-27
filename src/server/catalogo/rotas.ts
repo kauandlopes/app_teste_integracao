@@ -56,7 +56,7 @@ export function rotasCatalogo(): Router {
     const produto = obterProduto(req.params.codigo);
     if (!produto) return res.status(404).json({ erro: 'Produto não encontrado.' });
     const alvo = req.params.opcao;
-    const daPizza = produto.pizza ? [...produto.pizza.sabores, ...produto.pizza.massas, ...produto.pizza.bordas].find((o) => o.codigo === alvo) : undefined;
+    const daPizza = produto.pizza ? [...produto.pizza.tamanhos, ...produto.pizza.sabores, ...produto.pizza.massas, ...produto.pizza.bordas].find((o) => o.codigo === alvo) : undefined;
     const doGrupo = produto.grupos.flatMap((g) => g.opcoes).find((o) => o.codigo === alvo);
     const opcao: any = daPizza ?? doGrupo;
     if (!opcao) return res.status(404).json({ erro: 'Opção não encontrada neste produto.' });

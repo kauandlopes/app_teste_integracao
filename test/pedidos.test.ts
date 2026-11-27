@@ -259,14 +259,14 @@ test('entrar valida o token sem trocar o token de nenhuma conexao', async () => 
 test('contraproposta de disputa envia tipo e valor em centavos; campos do unificado aparecem', async () => {
   detalhe({ codigos: { retirada: null, coleta: '555', entrega: null }, pagamentos: [{ forma: 'CASH', bandeira: null, valor: 89.9, pagoOnline: false }], ajustes: { descontoPlataforma: 3, descontoLoja: 2, taxaServico: 1, gorjeta: 0, dinheiroAReceber: 89.9, repasseLoja: null }, agendamento: { agendado: false, previsaoEntrega: null, inicioPreparo: null } });
   await chegar('p15', 'HANDSHAKE_DISPUTE', 'HSD', { disputeId: 'd15', alternatives: [{ id: 'a1', type: 'REFUND' }] });
-  assert.equal((await acao('p15', 'counterOffer', { tipo: 'ADDITIONAL_TIME', minutos: 10, motivoTempo: 'X' })).status, 400);
+  assert.equal((await acao('p15', 'counterOffer', { alternativeId: 'outra', valor: '1' })).status, 400);
   const p = await obter('p15');
   assert.ok(p.extras.codigos.some((c: any) => c.valor === '555'));
   assert.deepEqual(p.extras.beneficios.map((b: any) => b.quemPaga), ['iFood', 'Loja']);
   assert.deepEqual(p.extras.valores.map((v: any) => v.rotulo), ['Taxa de serviço', 'Receber em dinheiro']);
   assert.equal(p.extras.agendamento, null);
-  assert.equal((await acao('p15', 'counterOffer', { tipo: 'REFUND', valor: '12,50' })).status, 200);
-  assert.deepEqual(enviadas().at(-1).dados, { disputeId: 'd15', type: 'REFUND', metadata: { amount: { value: '1250', currency: 'BRL' } } });
+  assert.equal((await acao('p15', 'counterOffer', { alternativeId: 'a1', valor: '12,50' })).status, 200);
+  assert.deepEqual(enviadas().at(-1).dados, { disputeId: 'd15', alternativeId: 'a1', type: 'REFUND', metadata: { amount: { value: '1250', currency: 'BRL' } } });
   assert.equal((await obter('p15')).pendencias.disputa, null);
 });
 

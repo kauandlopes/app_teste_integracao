@@ -25,8 +25,8 @@ Regras da fila:
 - Limite de frequência (errno 10005/12021, 429), erro 5xx ou rede: nova tentativa em 5, 15, 65, 120 e 300 s (8 vezes).
 - Recusa definitiva: o produto fica em "Erro" ou "Publicado em parte", com a mensagem da plataforma e "Reenviar".
 - `PATCH` de produto que o Hub ainda não conhece vira publicação completa.
-- A publicação do Hub não leva a disponibilidade de sabor, massa e borda: depois que os dois canais terminam, o ERP
-  envia as pausas e reativa o que voltou a ficar disponível (`PATCH .../opcoes/{opcao}`).
+- A disponibilidade de tamanho, sabor, massa e borda vai na própria publicação. Na 99Food, pizza com preço de sabor
+  variando por tamanho ignora a pausa de um tamanho.
 - Ajustes esperam enquanto a 99Food processa a publicação. Alteração feita durante um envio entra na fila em seguida.
 
 ## 2. Formato do produto
@@ -75,6 +75,39 @@ Cuidados (aplicados pelo ERP):
   produto (a categoria informada vale na 99Food).
 - O iFood demora alguns segundos para refletir uma leitura depois de uma escrita.
 
+Combo (cada grupo é uma etapa de escolha; o primeiro é o principal; preço no produto):
+
+```json
+{
+  "codigo": "COMBO1", "nome": "Combo lanche", "categoria": "Combos", "tipo": "COMBO", "preco": 30,
+  "grupos": [
+    { "codigo": "LANCHE", "nome": "Lanche", "min": 1, "max": 1, "opcoes": [ { "codigo": "XS", "nome": "X-Salada", "preco": 0 } ] },
+    { "codigo": "BEBIDA", "nome": "Bebida", "min": 1, "max": 1, "opcoes": [ { "codigo": "COCA", "nome": "Coca-Cola", "preco": 0 } ] }
+  ]
+}
+```
+
+### Preço por plataforma (opcional)
+
+`preco` é o **preço padrão**. Quando uma plataforma cobra taxa diferente, o item ganha `precosPlataforma`, somente com
+as chaves preenchidas:
+
+```json
+{ "codigo": "G", "nome": "Grande", "preco": 50, "precosPlataforma": { "IFOOD": 55.9, "99FOOD": 52 } }
+```
+
+| Regra | Detalhe |
+|---|---|
+| Chaves | `IFOOD`, `99FOOD`, `AIQFOME`, `KEETA` (as duas últimas para integrações futuras) |
+| Onde vale | produto simples ou combo, adicionais, tamanhos, sabores, massas e bordas de pizza |
+| Sabor de pizza | o valor substitui o acréscimo naquela plataforma |
+| Vazio | a plataforma usa o preço padrão; sem nenhum preenchido o campo não é enviado |
+| Ajuste rápido de preço | altera o padrão; o preço próprio da plataforma continua |
+| Na tela | escondido até marcar "Preço diferente por plataforma" |
+
+> Situação: o ERP já envia o campo. O Hub ainda precisa publicar o suporte; até lá o campo é ignorado e todas as
+> plataformas recebem o preço padrão.
+
 ## 3. Diferenças entre plataformas
 
 | Assunto | iFood | 99Food |
@@ -101,6 +134,6 @@ publicação.
 
 ## 5. Limites atuais do Hub
 
-Não há, pela rota de produto único: preço diferente por canal, escolher um canal só, ordenar itens, excluir
-categoria, promoção, horários de venda, combo, foto ou descrição por adicional ou sabor, sabor restrito a um tamanho,
+Não há, pela rota de produto único: escolher um canal só, ordenar itens, excluir
+categoria, promoção, horários de venda, foto ou descrição por adicional ou sabor, sabor restrito a um tamanho,
 nem importação automática de itens que já existiam na plataforma.

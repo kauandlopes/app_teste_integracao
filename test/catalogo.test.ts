@@ -66,7 +66,7 @@ test('produto com adicionais vai completo ao Hub, com codigos estaveis', async (
   assert.equal(segundo.grupos[0].opcoes[0].codigo, enviado.grupos[0].opcoes[0].codigo);
 });
 
-test('pizza envia tamanhos, sabores, massas e bordas e reaplica a pausa do sabor', async () => {
+test('pizza envia tamanhos, sabores, massas e bordas com a pausa de cada um', async () => {
   publicado();
   ajustes();
   await a.erp('PUT', '/catalogo/produtos', pizza);
@@ -78,9 +78,9 @@ test('pizza envia tamanhos, sabores, massas e bordas e reaplica a pausa do sabor
   assert.equal(enviado.pizza.sabores[1].acrescimo, 10);
   assert.equal(enviado.pizza.massas.length, 1);
   assert.equal(enviado.pizza.bordas[0].preco, 8);
-  const pausa = a.chamadasDe('PATCH', /opcoes\/CAM$/);
-  assert.equal(pausa.length, 1);
-  assert.deepEqual(pausa[0].corpo, { disponivel: false });
+  assert.equal(enviado.pizza.sabores[1].disponivel, false);
+  assert.ok(enviado.pizza.tamanhos.every((t: any) => t.disponivel === true));
+  assert.equal(a.chamadasDe('PATCH', /opcoes\//).length, 0, 'a pausa vai na propria publicacao');
 });
 
 test('preco e pausa rapidos usam PATCH; preco de opcao de pizza republica', async () => {
@@ -158,25 +158,6 @@ test('ajustes direto na plataforma usam o formato de cada canal', async () => {
   assert.deepEqual(corpos[3], ['99FOOD', { optionId: 'O', groupId: 'G', price: 2 }]);
 });
 
-const pausas = () => a.chamadasDe('PATCH', /opcoes\//).map((c) => [c.caminho.split('/').at(-1), c.corpo.disponivel]);
-
-test('pausa de sabor espera a 99Food terminar e reativar pelo editor chega as plataformas', async () => {
-  publicado(canais('PUBLICADO', 'PROCESSANDO'));
-  ajustes();
-  const { produto } = (await a.erp('PUT', '/catalogo/produtos', pizza)).json;
-  await esperar();
-  assert.deepEqual(pausas(), [], 'nada enquanto processa');
-  a.quando('GET', /\/catalogo\/produtos\//, () => ({ json: { canais: canais() } }));
-  await pub.acompanharProcessamento();
-  await esperar();
-  assert.deepEqual(pausas(), [['CAM', false]]);
-  publicado();
-  produto.pizza.sabores[1].disponivel = true;
-  await a.erp('PUT', '/catalogo/produtos', produto);
-  await esperar();
-  assert.deepEqual(pausas().at(-1), ['CAM', true]);
-});
-
 test('alteracao e salvamento durante um envio nao se perdem', async () => {
   ajustes();
   let durante: (() => void) | null = null;
@@ -231,15 +212,44 @@ test('preco rapido de sabor com acrescimo por tamanho e recusado', async () => {
   assert.equal((await a.erp('PATCH', `/catalogo/produtos/${produto.codigo}/opcoes/CAL`, { preco: 12 })).status, 400);
 });
 
-test('pausa aceita por um canal e lembrada mesmo com erro no outro', async () => {
-  publicado(canais('PUBLICADO', 'ERRO', 'Data not exist'));
-  a.quando('PATCH', /\/catalogo\/produtos\//, () => ({ json: { ok: false, resultado: { canais: canais('PUBLICADO', 'ERRO', 'recusou') } } }));
-  const comPausa = { ...pizza, codigo: 'PZ' };
-  const { produto } = (await a.erp('PUT', '/catalogo/produtos', comPausa)).json;
+test('preco por plataforma vai somente quando preenchido', async () => {
+  publicado();
+  await a.erp('PUT', '/catalogo/produtos', lanche);
   await esperar();
-  assert.deepEqual(JSON.parse((a.banco.db.prepare("SELECT pausadasJson FROM produtos WHERE codigo = 'PZ'").get() as any).pausadasJson), ['CAM']);
-  produto.pizza.sabores[1].disponivel = true;
-  await a.erp('PUT', '/catalogo/produtos', produto);
+  const semPreco = a.chamadasDe('POST', /catalogo\/produtos$/)[0].corpo;
+  assert.equal(JSON.stringify(semPreco).includes('precosPlataforma'), false);
+
+  const comPreco = {
+    ...pizza,
+    codigo: 'PZPLAT',
+    precosPlataforma: { IFOOD: 1 },
+    pizza: {
+      ...pizza.pizza,
+      tamanhos: [{ codigo: 'G', nome: 'Grande', preco: 50, maxSabores: 2, precosPlataforma: { IFOOD: '55,90', '99FOOD': '', KEETA: 60, OUTRA: 1 } }],
+      bordas: [{ nome: 'Catupiry', preco: 8, precosPlataforma: { '99FOOD': 9 } }],
+    },
+    grupos: [{ nome: 'Extras', min: 0, max: 1, opcoes: [{ nome: 'Mel', preco: 0, precosPlataforma: { AIQFOME: '2' } }] }],
+  };
+  assert.equal((await a.erp('PUT', '/catalogo/produtos', comPreco)).status, 202);
   await esperar();
-  assert.deepEqual(pausas().at(-1), ['CAM', true]);
+  const enviado = a.chamadasDe('POST', /catalogo\/produtos$/).at(-1)!.corpo;
+  assert.equal(enviado.precosPlataforma, undefined, 'na pizza o preco vem dos tamanhos');
+  assert.equal(enviado.pizza.tamanhos[0].preco, 50);
+  assert.deepEqual(enviado.pizza.tamanhos[0].precosPlataforma, { IFOOD: 55.9, KEETA: 60 });
+  assert.deepEqual(enviado.pizza.bordas[0].precosPlataforma, { '99FOOD': 9 });
+  assert.deepEqual(enviado.grupos[0].opcoes[0].precosPlataforma, { AIQFOME: 2 });
+  assert.equal(enviado.pizza.sabores[0].precosPlataforma, undefined);
+  const zero = { ...comPreco, codigo: 'Z', pizza: { ...comPreco.pizza, tamanhos: [{ codigo: 'G', nome: 'G', preco: 50, precosPlataforma: { IFOOD: 0 } }] } };
+  assert.equal((await a.erp('PUT', '/catalogo/produtos', zero)).status, 400);
+});
+
+test('combo vai com as etapas e exige pelo menos uma', async () => {
+  publicado();
+  const combo = { nome: 'Combo', categoria: 'Combos', tipo: 'COMBO', preco: 30, precosPlataforma: { IFOOD: 33 }, grupos: [{ nome: 'Lanche', min: 1, max: 1, opcoes: [{ nome: 'X' }] }] };
+  assert.equal((await a.erp('PUT', '/catalogo/produtos', { ...combo, grupos: [] })).status, 400);
+  assert.equal((await a.erp('PUT', '/catalogo/produtos', combo)).status, 202);
+  await esperar();
+  const enviado = a.chamadasDe('POST', /catalogo\/produtos$/).at(-1)!.corpo;
+  assert.equal(enviado.tipo, 'COMBO');
+  assert.deepEqual(enviado.precosPlataforma, { IFOOD: 33 });
 });

@@ -35,7 +35,7 @@ export function GestorCatalogo({
 }) {
   const [aba, setAba] = useState<'erp' | 'plataformas'>('erp');
   const [busca, setBusca] = useState('');
-  const [editor, setEditor] = useState<{ produto: ProdutoErp | null; tipo: 'SIMPLES' | 'PIZZA' } | null>(null);
+  const [editor, setEditor] = useState<{ produto: ProdutoErp | null; tipo: ProdutoErp['tipo'] } | null>(null);
   const [aberto, setAberto] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
@@ -70,6 +70,7 @@ export function GestorCatalogo({
   const opcoesDe = (p: ProdutoErp) => [
     ...(p.pizza
       ? [
+          { titulo: 'Tamanhos', opcoes: p.pizza.tamanhos.map((o) => ({ ...o, valor: o.preco })) },
           { titulo: 'Sabores', opcoes: p.pizza.sabores.map((o) => ({ ...o, valor: o.acrescimo, porTamanho: !!o.acrescimoPorTamanho })) },
           { titulo: 'Massas', opcoes: p.pizza.massas.map((o) => ({ ...o, valor: o.preco })) },
           { titulo: 'Bordas', opcoes: p.pizza.bordas.map((o) => ({ ...o, valor: o.preco })) },
@@ -101,6 +102,9 @@ export function GestorCatalogo({
             <button type="button" className="btn btn-sm btn-primary" onClick={() => setEditor({ produto: null, tipo: 'PIZZA' })}>
               Nova pizza
             </button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => setEditor({ produto: null, tipo: 'COMBO' })}>
+              Novo combo
+            </button>
           </div>
         ) : null}
       </div>
@@ -122,7 +126,8 @@ export function GestorCatalogo({
                   {p.foto ? <img src={p.foto} alt="" className="miniatura" /> : null}
                   <div style={{ flex: 1, minWidth: 200 }}>
                     <strong>{p.nome}</strong>
-                    {p.tipo === 'PIZZA' ? <span className="pill" style={{ marginLeft: 6 }}>Pizza</span> : null}
+                    {p.tipo !== 'SIMPLES' ? <span className="pill" style={{ marginLeft: 6 }}>{p.tipo === 'PIZZA' ? 'Pizza' : 'Combo'}</span> : null}
+                    {JSON.stringify(p).includes('"precosPlataforma"') ? <span className="pill pill-info" style={{ marginLeft: 6 }}>Preço por plataforma</span> : null}
                     <div className="suave">
                       {p.categoria} · {p.codigo}
                     </div>
@@ -138,7 +143,7 @@ export function GestorCatalogo({
                       ) : null;
                     })}
                   </div>
-                  {p.tipo === 'SIMPLES' ? (
+                  {p.tipo !== 'PIZZA' ? (
                     <PrecoEditavel valor={p.preco} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { preco }), 'Preço salvo. Enviando.')} />
                   ) : (
                     <span className="suave">a partir de {formatarMoeda(p.preco)}</span>

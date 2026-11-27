@@ -2,7 +2,7 @@ import { db, obterConfig } from '../db.js';
 import { hubFetch, mensagemDoHub, RespostaHub } from '../hubClient.js';
 import { notificar } from '../stream.js';
 import type { CanalPublicacao, EstadoProduto, ProdutoCadastrado, ProdutoErp, SituacaoCanal } from '../../shared/tipos.js';
-import { opcoesPausadasDaPizza, paraHub } from './produto.js';
+import { paraHub } from './produto.js';
 
 /**
  * Fila de publicacao: cada alteracao do cardapio e gravada no ERP e enviada em seguida ao Hub, que publica
@@ -34,8 +34,6 @@ interface LinhaProduto {
   erro: string;
   atualizadoEm: string;
   removendo: number;
-  pausadasJson: string;
-  reaplicarPausas: number;
 }
 interface Tarefa {
   id: number;
@@ -99,32 +97,6 @@ export function enfileirar(codigo: string, operacao: Operacao, dados: Record<str
   db.prepare('INSERT INTO fila_catalogo (codigo, operacao, opcao, dadosJson) VALUES (?, ?, ?, ?)').run(codigo, operacao, opcao, JSON.stringify(dados));
   marcar(codigo, operacao === 'REMOVER' ? 'REMOVENDO' : 'NA_FILA');
   void processarCatalogo();
-}
-
-/**
- * Sabores, massas e bordas: o Hub nao leva "disponivel" deles na publicacao. Depois que os dois canais terminam,
- * o ERP envia as pausas e reativa o que estava pausado nas plataformas e voltou a ficar disponivel.
- */
-function sincronizarPausas(codigo: string) {
-  const produto = obterProduto(codigo);
-  const l = linha(codigo);
-  if (!produto?.pizza || !l) return;
-  const pausadas = opcoesPausadasDaPizza(produto);
-  const existentes = new Set([...produto.pizza.sabores, ...produto.pizza.massas, ...produto.pizza.bordas].map((o) => o.codigo));
-  const anteriores = (JSON.parse(l.pausadasJson || '[]') as string[]).filter((o) => existentes.has(o));
-  db.prepare('UPDATE produtos SET reaplicarPausas = 0 WHERE codigo = ?').run(codigo);
-  for (const opcao of pausadas) enfileirar(codigo, 'PATCH_OPCAO', { disponivel: false }, opcao);
-  for (const opcao of anteriores.filter((o) => !pausadas.includes(o))) enfileirar(codigo, 'PATCH_OPCAO', { disponivel: true }, opcao);
-}
-
-/** Registra o que esta pausado nas plataformas depois de um ajuste de opcao aceito. */
-function registrarPausa(codigo: string, opcao: string, disponivel: boolean) {
-  const l = linha(codigo);
-  if (!l) return;
-  const lista = new Set(JSON.parse(l.pausadasJson || '[]') as string[]);
-  if (disponivel) lista.delete(opcao);
-  else lista.add(opcao);
-  db.prepare('UPDATE produtos SET pausadasJson = ? WHERE codigo = ?').run(JSON.stringify([...lista]), codigo);
 }
 
 const processando = (canais: Partial<Record<CanalPublicacao, SituacaoCanal>>) => Object.values(canais).some((c) => c.estado === 'PROCESSANDO');
@@ -220,15 +192,6 @@ async function executar(t: Tarefa) {
   }
 
   marcar(t.codigo, resumo.estado, resumo.erro, canais);
-  if (t.operacao === 'PATCH_OPCAO') {
-    // A pausa vale mesmo se um canal falhar (o outro pode ter pausado); a reativacao so conta sem erro nenhum
-    const disponivel = JSON.parse(t.dadosJson).disponivel;
-    if (disponivel === false || (disponivel === true && !resumo.erro)) registrarPausa(t.codigo, t.opcao, disponivel);
-  }
-  if (t.operacao === 'PUBLICAR') {
-    if (processando(canais)) db.prepare('UPDATE produtos SET reaplicarPausas = 1 WHERE codigo = ?').run(t.codigo);
-    else sincronizarPausas(t.codigo);
-  }
 }
 
 let rodando = false;
@@ -280,7 +243,6 @@ export async function acompanharProcessamento(): Promise<void> {
     const naEspera = !!db.prepare("SELECT 1 FROM fila_catalogo WHERE codigo = ? AND estado = 'PENDENTE'").get(l.codigo);
     const estado = atual.removendo && resumo.estado === 'PROCESSANDO' ? 'REMOVENDO' : naEspera ? 'NA_FILA' : resumo.estado;
     if (JSON.stringify(canais) !== atual.canaisJson || estado !== atual.estado) marcar(l.codigo, estado, resumo.erro, canais);
-    if (!processando(canais) && atual.reaplicarPausas) sincronizarPausas(l.codigo);
   }
   void processarCatalogo();
 }
