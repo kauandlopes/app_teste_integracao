@@ -42,7 +42,7 @@ export function GestorCatalogo({
   const [categoriasPlataforma, setCategoriasPlataforma] = useState<string[]>([]);
 
   useEffect(() => {
-    void erpApi.catalogo
+    void erpApi
       .plataformas(false)
       .then((r) => setCategoriasPlataforma(r.categorias.map((c) => c.nome).filter(Boolean)))
       .catch(() => {});
