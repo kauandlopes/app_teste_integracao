@@ -18,7 +18,8 @@ export function TelaEntrada({
   aoAbrirLogs: () => void;
   aoEntrar: () => void;
 }) {
-  const [token, setToken] = useState('');
+  // Token fixo apenas para agilizar testes locais/homologacao (trocar/revogar este token depois por seguranca)
+  const [token, setToken] = useState('hubp_1fb7c38c-a62e-4c3e-831c-85390f64639b_6Y8VetE84mkkx2cKw-BnhlH03PeAvKVmUoIID8wPEEc');
   const [baseUrl, setBaseUrl] = useState(baseUrlInicial || 'https://delivery.targetx.com.br/api/v1');
   const [mostrarToken, setMostrarToken] = useState(false);
   const [mostrarServidor, setMostrarServidor] = useState(false);
