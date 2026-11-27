@@ -5475,7 +5475,7 @@
         ],
         "operationId": "alterarDadosLojaConexao",
         "summary": "Altera dados e horarios da loja nos dois canais",
-        "description": "Resposta por plataforma. 200 quando ao menos uma plataforma teve sucesso (confira ok/parcial); sem nenhum sucesso o HTTP e o do erro, com detalhes.plataformas no mesmo formato (429 somente se todas as falhas forem limite). Envie somente o que muda. iFood permite apenas horarios; os demais campos sao da 99Food. A loja e sempre a da conexao: ids no corpo sao recusados.",
+        "description": "Resposta por plataforma. 200 quando ao menos uma plataforma teve sucesso (confira ok/parcial); sem nenhum sucesso o HTTP e o do erro, com detalhes.plataformas no mesmo formato (429 somente se todas as falhas forem limite). Envie somente o que muda. iFood permite apenas horarios; os demais campos sao da 99Food. A loja e sempre a da conexao: ids no corpo sao recusados. Na 99Food, se horarios junto com outros campos forem recusados (errno 10002 ou 11081), os horarios sao reenviados sozinhos e os demais em outra chamada; o que nao couber no limite de 1 por minuto volta FALHOU (429) com retryAfterSegundos: repita somente esses campos.",
         "security": [
           {
             "conexao": []
@@ -6788,6 +6788,11 @@
             "nullable": true,
             "additionalProperties": true,
             "description": "Nas duas: nome, endereco, telefones, horarios (HorarioDia[]), tempoPreparoMinutos, situacao{aberta,codigo,titulo}, pausas. iFood: razaoSocial, descricao, tipo, ticketMedio, operacoes, situacao.motivos, pausas[{id,descricao,inicio,fim,ativa}]. 99Food: feriados, aberturaAutomatica, modoOcupado, imagens, categorias, aceitePedidos, solicitacoesCliente. null = a plataforma nao informa."
+          },
+          "lidoEm": {
+            "type": "string",
+            "format": "date-time",
+            "description": "99Food: presente somente quando os dados sao uma leitura guardada (repetida por ate 55 segundos, ou a anterior quando o limite de frequencia impede outra); horario em que a 99Food respondeu. Ausente: lida nesta requisicao"
           },
           "falhas": {
             "type": "array",
@@ -8107,14 +8112,15 @@
           },
           "envioEmSegundos": {
             "type": "integer",
-            "description": "So na resposta: envio da 99Food na fila, sai em cerca de N segundos"
+            "description": "So na resposta: envio da 99Food na fila, sai em cerca de N segundos. Atras de um envio ainda em andamento nao ha horario certo (o aviso do canal explica) e N e quando vale consultar de novo"
           },
           "detalhes": {},
           "avisos": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Os avisos de espera da 99Food somem quando o estado deixa de ser PROCESSANDO"
           },
           "itemId": {
             "type": "string"
