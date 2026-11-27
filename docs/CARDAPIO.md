@@ -105,8 +105,8 @@ as chaves preenchidas:
 | Ajuste rápido de preço | altera o padrão; o preço próprio da plataforma continua |
 | Na tela | escondido até marcar "Preço diferente por plataforma" |
 
-> Situação: o ERP já envia o campo. O Hub ainda precisa publicar o suporte; até lá o campo é ignorado e todas as
-> plataformas recebem o preço padrão.
+> Conferido ao vivo em 27/11 no iFood e na 99Food: preço próprio em tamanho de pizza e em adicional, e volta ao padrão
+> quando o produto é reenviado sem o campo.
 
 ## 3. Diferenças entre plataformas
 

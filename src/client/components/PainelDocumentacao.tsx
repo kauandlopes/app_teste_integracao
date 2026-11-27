@@ -288,7 +288,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
           </pre>
           <p style={{ margin: 0, fontSize: 13 }}>
             <strong>Preço por plataforma (opcional):</strong> <code>preco</code> é o padrão. Envie <code>precosPlataforma</code> somente com as chaves preenchidas (
-            <code>IFOOD</code>, <code>99FOOD</code>, <code>AIQFOME</code>, <code>KEETA</code>) em produto, adicional, tamanho, sabor, massa ou borda. O Hub ainda está preparando o suporte.
+            <code>IFOOD</code>, <code>99FOOD</code>, <code>AIQFOME</code>, <code>KEETA</code>) em produto, adicional, tamanho, sabor, massa ou borda.
           </p>
           <p style={{ margin: 0, fontSize: 13 }}>
             <strong>Combo:</strong> <code>tipo: "COMBO"</code>, preço no produto e um grupo por etapa (o primeiro é o principal).

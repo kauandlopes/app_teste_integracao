@@ -349,7 +349,7 @@ export function EditorProduto({
           </div>
           {f.porPlataforma ? (
             <div className="banner banner-warn">
-              Opcional: preencha só onde o preço muda; campo vazio usa o preço padrão. Desmarcar apaga os preços por plataforma ao salvar. O Hub ainda está preparando o suporte: até ser publicado, vale o preço padrão em todas.
+              Opcional: preencha só onde o preço muda; campo vazio usa o preço padrão. Desmarcar apaga os preços por plataforma ao salvar. Vale também para cada adicional, tamanho, sabor, massa e borda.
             </div>
           ) : null}
           {f.porPlataforma && !ehPizza ? <CamposPlataforma precos={f.precos} padrao={f.preco} mudar={(precos) => mudar({ precos })} /> : null}
