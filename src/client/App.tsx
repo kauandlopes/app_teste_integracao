@@ -6,9 +6,10 @@ import { KanbanPedidos } from './components/KanbanPedidos';
 import { MenuTresPontos } from './components/MenuTresPontos';
 import { ModalLogs } from './components/ModalLogs';
 import { PainelConexao } from './components/PainelConexao';
+import { PainelDocumentacao } from './components/PainelDocumentacao';
 import { TelaEntrada } from './components/TelaEntrada';
 
-type Aba = 'pedidos' | 'catalogo' | 'lojas';
+type Aba = 'pedidos' | 'catalogo' | 'lojas' | 'docs';
 
 export function App() {
   const [escuro, setEscuro] = useState<boolean>(() => localStorage.getItem('erp-tema') === 'dark');
@@ -204,6 +205,9 @@ export function App() {
             <button type="button" className={`nav-tab${aba === 'lojas' ? ' active' : ''}`} onClick={() => setAba('lojas')}>
               Lojas e Operação
             </button>
+            <button type="button" className={`nav-tab${aba === 'docs' ? ' active' : ''}`} onClick={() => setAba('docs')}>
+              Documentação API
+            </button>
           </nav>
         </div>
 
@@ -311,6 +315,8 @@ export function App() {
             aoAbrirLogs={() => setLogsAberto(true)}
           />
         ) : null}
+
+        {aba === 'docs' ? <PainelDocumentacao sessao={sessao} notificar={notificar} /> : null}
       </main>
 
       {logsAberto ? <ModalLogs aoFechar={() => setLogsAberto(false)} aoMudarContagem={setTotalErrosLogs} /> : null}

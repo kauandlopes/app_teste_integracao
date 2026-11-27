@@ -119,3 +119,28 @@ Depois que a conexão (`hubp_` + CNPJ + `webhook.url` da máquina + vínculo da 
    - Sincronização inicial/manual: `GET /hub/v1/conexao/catalogo/unificado` traz todas as categorias, itens, grupos de modificadores, opções/adicionais e preços sempre em reais (`float`) tanto do iFood quanto da 99Food.
    - Alteração de preço na 99Food preserva automaticamente `app_modifier_group_ids` (não desvincula adicionais).
    - Alterações de status/preço de itens e opções funcionam nos dois canais pelo mesmo conjunto de rotas `/hub/v1/conexao/catalogo/*`.
+
+
+---
+
+## 4. Rota do Webhook, Como Puxar Pedidos e API Genérica para Futuras Integrações
+
+### A. Qual rota de Webhook configurar
+- **No app de homologação atual:** `POST https://delivery.targetx.com.br/erp-simulador/api/webhook`
+- **No seu ERP de produção (1 rota por máquina/servidor ou túnel):** qualquer URL HTTPS própria informada no campo `webhook.url` ao chamar `POST /hub/v1/integracao/conectar` (ex.: `https://loja-01.seuerp.com.br/webhook`).
+- **Headers recebidos em cada POST do Hub:** `X-Target-Assinatura` (`v1=<hmac>`), `X-Target-Timestamp`, `X-Target-Notificacao`, `X-Target-Plataforma`, `X-Target-Tipo`, `X-Target-Pedido`, `X-Target-Seq`.
+- **Assinatura HMAC:** `HMAC_SHA256(webhookSegredo, "${timestamp}.${notificacaoId}.${rawBody}")`, validada obrigatoriamente em tempo constante (`crypto.timingSafeEqual`); ausente ou divergente deve retornar **HTTP 401**.
+
+### B. Como o ERP puxa e processa pedidos (PUSH + Fallback Unificado)
+1. **Via Webhook PUSH (principal, instantâneo):** valida HMAC -> deduplica por `X-Target-Notificacao` -> se `body.pedido` já vier completo usa direto; se não vier, consulta `GET /hub/v1/conexao/pedidos/{pedidoId}?plataforma={canal}&formato=unificado` com `Bearer <tokenConexao_hubi>` -> grava no banco do ERP com proteção monotônica de status (nunca regredir `CONCLUIDO`/`CANCELADO`) -> responde **HTTP 200**.
+2. **Via Consulta / Reconciliação / Pedidos Target Delivery:**
+   - `GET /hub/v1/conexao/pedidos?limite=30` (pedidos recebidos no Hub)
+   - `GET /hub/v1/conexao/pedidos?incluirSistema=true&limite=30` (pedidos já salvos no Target Delivery no mesmo formato `PedidoUnificadoHub`)
+   - Se `PULL` estiver ligado em máquina sem túnel: `GET /hub/v1/eventos?espera=25&limite=50` + `POST /hub/v1/eventos/confirmar` `{ "ate": maxSeq }`.
+
+### C. Contrato Genérico para TODAS as Integrações (iFood, 99Food e futuras plataformas)
+Toda integração atual (`IFOOD`, `99FOOD`, `TD`) e futura (ex.: `KEETA`, `AIQFOME`, `RAPPI`) trafega pelas **mesmas rotas agnósticas**:
+- Conexão: `POST /hub/v1/integracao/conectar`, `GET /hub/v1/conexao`, `POST /hub/v1/conexao/lojas`
+- Pedidos e ações: `GET /hub/v1/conexao/pedidos/:id?formato=unificado`, `POST /hub/v1/conexao/pedidos/:id/acao`, `GET /hub/v1/conexao/pedidos/:id/subrecurso?tipo=motivos|rastreio|sacola`
+- Catálogo: `GET /hub/v1/conexao/catalogo/unificado`, `PATCH /hub/v1/conexao/catalogo/itens/preco`, `PATCH /hub/v1/conexao/catalogo/itens/status`, `PATCH /hub/v1/conexao/catalogo/opcoes/preco`, `PATCH /hub/v1/conexao/catalogo/opcoes/status`
+- Status da loja: `GET /hub/v1/conexao/loja/status`
