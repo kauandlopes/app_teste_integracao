@@ -63,7 +63,10 @@ export function rotasCatalogo(): Router {
 
     const mudanca: { preco?: number; disponivel?: boolean } = {};
     if (typeof req.body?.disponivel === 'boolean') mudanca.disponivel = req.body.disponivel;
-    if (req.body?.preco !== undefined) mudanca.preco = Number(req.body.preco);
+    if (req.body?.preco !== undefined) {
+      if (opcao.acrescimoPorTamanho) return res.status(400).json({ erro: 'Este sabor tem acréscimo por tamanho. Edite o produto.' });
+      mudanca.preco = Number(req.body.preco);
+    }
     if (!Object.keys(mudanca).length) return res.status(400).json({ erro: 'Informe preço ou disponível.' });
     try {
       if (mudanca.disponivel !== undefined) opcao.disponivel = mudanca.disponivel;
@@ -176,6 +179,7 @@ export function rotasCatalogo(): Router {
       hubFetch(`/hub/v1/conexao/catalogo/categorias/${encodeURIComponent(id)}?plataforma=${plat}`, { metodo: 'PATCH', body: dados, timeoutMs: 65_000 });
 
     if (mover) {
+      if (plat === '99FOOD') return res.status(400).json({ erro: 'A ordem das categorias da 99Food não é alterada aqui: cada troca reenvia o cardápio inteiro (limite de 1 por minuto).' });
       const lista = lerEspelho().categorias.filter((c) => c.plataforma === plat);
       const de = lista.findIndex((c) => c.id === req.params.id);
       const para = de + (mover === 'subir' ? -1 : 1);

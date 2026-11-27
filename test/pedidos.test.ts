@@ -258,7 +258,8 @@ test('entrar valida o token sem trocar o token de nenhuma conexao', async () => 
 
 test('contraproposta de disputa envia tipo e valor em centavos; campos do unificado aparecem', async () => {
   detalhe({ codigos: { retirada: null, coleta: '555', entrega: null }, pagamentos: [{ forma: 'CASH', bandeira: null, valor: 89.9, pagoOnline: false }], ajustes: { descontoPlataforma: 3, descontoLoja: 2, taxaServico: 1, gorjeta: 0, dinheiroAReceber: 89.9, repasseLoja: null }, agendamento: { agendado: false, previsaoEntrega: null, inicioPreparo: null } });
-  await chegar('p15', 'HANDSHAKE_DISPUTE', 'HSD', { disputeId: 'd15' });
+  await chegar('p15', 'HANDSHAKE_DISPUTE', 'HSD', { disputeId: 'd15', alternatives: [{ id: 'a1', type: 'REFUND' }] });
+  assert.equal((await acao('p15', 'counterOffer', { tipo: 'ADDITIONAL_TIME', minutos: 10, motivoTempo: 'X' })).status, 400);
   const p = await obter('p15');
   assert.ok(p.extras.codigos.some((c: any) => c.valor === '555'));
   assert.deepEqual(p.extras.beneficios.map((b: any) => b.quemPaga), ['iFood', 'Loja']);
@@ -267,4 +268,52 @@ test('contraproposta de disputa envia tipo e valor em centavos; campos do unific
   assert.equal((await acao('p15', 'counterOffer', { tipo: 'REFUND', valor: '12,50' })).status, 200);
   assert.deepEqual(enviadas().at(-1).dados, { disputeId: 'd15', type: 'REFUND', metadata: { amount: { value: '1250', currency: 'BRL' } } });
   assert.equal((await obter('p15')).pendencias.disputa, null);
+});
+
+test('webhook que chega durante o processamento do evento reconciliado nao se perde', async () => {
+  const em = new Date(Date.now() - 120_000).toISOString();
+  a.quando('GET', /\/conexao\/pedidos\/p16$/, () => {
+    // O corpo do webhook chega enquanto o detalhe do evento sem corpo esta sendo buscado
+    proc.receberEvento({ id: 'push-60', origem: 'PUSH', seq: 60, plataforma: 'IFOOD', pedidoId: 'p16', tipo: 'HANDSHAKE_DISPUTE', corpo: JSON.stringify(iFood('HSD', 'HANDSHAKE_DISPUTE', 'p16', { disputeId: 'd16' })) });
+    return { json: pedidoUnificado('p16') };
+  });
+  a.quando('GET', /\/conexao\/pedidos$/, () => ({ json: [{ plataforma: 'IFOOD', pedidoId: 'p16', eventos: [{ seq: 60, tipo: 'HANDSHAKE_DISPUTE', em }] }] }));
+  await proc.reconciliar();
+  await proc.processarFila();
+  assert.equal((await obter('p16')).pendencias.disputa?.id, 'd16');
+});
+
+test('responder uma disputa nao apaga a que chegou durante a chamada', async () => {
+  detalhe();
+  await chegar('p17', 'HANDSHAKE_DISPUTE', 'HSD', { disputeId: 'd1' });
+  a.quando('POST', /\/acao$/, () => {
+    proc.receberEvento({ id: 'nova', origem: 'PUSH', seq: 999, plataforma: 'IFOOD', pedidoId: 'p17', tipo: 'HANDSHAKE_DISPUTE', corpo: JSON.stringify(iFood('HSD', 'HANDSHAKE_DISPUTE', 'p17', { disputeId: 'd2' })) });
+    void proc.processarFila();
+    return { json: { ok: true } };
+  });
+  assert.equal((await acao('p17', 'denyCancellation', { idPendencia: 'd1' })).status, 200);
+  await proc.processarFila();
+  assert.equal((await obter('p17')).pendencias.disputa?.id, 'd2');
+  assert.equal((await acao('p17', 'denyCancellation', { idPendencia: 'd1' })).status, 409);
+});
+
+test('pedido importado do Delivery e somente leitura; agendamento recusado nao se repete', async () => {
+  a.quando('GET', /\/conexao\/pedidos$/, () => ({ json: [pedidoUnificado('td-1')] }));
+  await a.erp('POST', '/pedidos/importar-sistema');
+  assert.deepEqual((await obter('td-1')).acoes, []);
+  assert.equal((await acao('td-1', 'confirm')).status, 409);
+
+  a.limpar();
+  detalhe({ bruto: { orderTiming: 'SCHEDULED', preparationStartDateTime: new Date(Date.now() - 1000).toISOString() } });
+  await chegar('p18', 'CONFIRMED', 'CFM');
+  a.quando('POST', /\/acao$/, () => ({ status: 409, json: { codigo: 'X', erro: 'recusado' } }));
+  await proc.iniciarAgendados();
+  await proc.iniciarAgendados();
+  assert.equal(a.chamadasDe('POST', /\/acao$/).length, 1);
+});
+
+test('reconectar a mesma empresa mantem o segredo atual do webhook', async () => {
+  a.quando('POST', /\/integracao\/conectar$/, () => ({ json: { conexaoId: 'conexao-1', cnpj: '11111111000191', transporte: { modo: 'PUSH' }, lojas: [], credenciais: { token: 'hubi_teste', webhookSegredo: 'segredo-antigo' } } }));
+  assert.equal((await a.erp('POST', '/conectar-cnpj', { cnpj: '11111111000191', transporte: 'PUSH' })).status, 200);
+  assert.equal(a.banco.obterConfig().webhookSegredo, 'segredo-teste');
 });

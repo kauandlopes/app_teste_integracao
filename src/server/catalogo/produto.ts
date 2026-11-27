@@ -54,6 +54,7 @@ function grupos(entrada: unknown, usados: Set<string>): GrupoProduto[] {
       return { codigo: codigo(o.codigo, rotulo, usados, rotulo), nome: rotulo, preco: preco(o.preco, rotulo), disponivel: o.disponivel !== false };
     });
     if (!opcoes.length) falha(`${titulo}: inclua pelo menos uma opção.`);
+    if (opcoes.length > 100) falha(`${titulo}: o limite é de 100 opções por grupo.`);
     const min = Math.max(0, Math.floor(Number(g.min ?? 0)) || 0);
     const max = Math.floor(Number(g.max ?? 1)) || 1;
     if (max < 1 || max > 99 || min > 99) falha(`${titulo}: mínimo e máximo devem ficar entre 0 e 99.`);
@@ -143,7 +144,7 @@ export function paraHub(p: ProdutoErp): Record<string, unknown> {
   };
 }
 
-/** Sabores, massas e bordas pausados: o Hub reativa na republicacao, entao a pausa e reaplicada depois. */
+/** Sabores, massas e bordas pausados: a publicacao do Hub nao leva esse estado (ver publicador.sincronizarPausas). */
 export function opcoesPausadasDaPizza(p: ProdutoErp): string[] {
   if (!p.pizza) return [];
   return [...p.pizza.sabores, ...p.pizza.massas, ...p.pizza.bordas].filter((o) => !o.disponivel).map((o) => o.codigo);

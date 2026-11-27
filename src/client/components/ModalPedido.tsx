@@ -17,6 +17,8 @@ export const ROTULO_MODALIDADE = {
   MESA: 'Consumo no local',
 } as const;
 
+const CONTRAPROPOSTAS: Record<string, string> = { REFUND: 'Reembolso parcial', ADDITIONAL_TIME: 'Tempo adicional' };
+
 export const novaIntencao = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 /** Tempo restante de uma solicitacao com prazo (disputa, cancelamento, reembolso). */
@@ -126,6 +128,8 @@ export function ModalPedido({
   const principais = p.acoes.filter((a) => a.tipo !== 'avancada');
   const avancadas = p.acoes.filter((a) => a.tipo === 'avancada');
   const { disputa, cancelamentoCliente, reembolso, cancelamentoLoja } = p.pendencias;
+  // So os tipos que a propria disputa oferece
+  const contrapropostas = [...new Set((disputa?.alternativas ?? []).map((a: any) => a?.type as string))].filter((t) => CONTRAPROPOSTAS[t]);
 
   return (
     <div className="modal-backdrop" onClick={aoFechar}>
@@ -137,6 +141,7 @@ export function ModalPedido({
             <span className={p.statusKanban === 'CANCELADO' ? 'pill pill-err' : 'pill pill-info'}>{ROTULO_ETAPA[p.statusKanban]}</span>
             <span className="pill">{ROTULO_MODALIDADE[p.modalidade]}</span>
             {p.simulado ? <span className="pill pill-warn">Simulado</span> : null}
+            {p.somenteLeitura ? <span className="pill">Somente leitura</span> : null}
             {p.extras.pedidoTeste ? <span className="pill pill-warn">Teste da plataforma</span> : null}
           </div>
           <div className="linha">
@@ -172,20 +177,23 @@ export function ModalPedido({
               {disputa.alternativas.length ? <pre className="code-block">{JSON.stringify(disputa.alternativas, null, 2)}</pre> : null}
               <input className="input input-sm" placeholder="Resposta ao cliente (opcional)" value={campo('texto')} onChange={(e) => definir('texto', e.target.value)} />
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptCancellation', { texto: campo('texto') })}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptCancellation', { texto: campo('texto'), idPendencia: disputa.id })}>
                   Aceitar solicitação
                 </button>
-                <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => executar('denyCancellation', { texto: campo('texto') })}>
+                <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => executar('denyCancellation', { texto: campo('texto'), idPendencia: disputa.id })}>
                   Recusar
                 </button>
               </div>
-              {p.plataforma === 'IFOOD' && !p.simulado ? (
+              {p.plataforma === 'IFOOD' && !p.simulado && contrapropostas.length ? (
                 <div className="linha">
                   <span className="field-label">Contraproposta</span>
                   <select className="select input-sm" style={{ width: 200 }} value={campo('tipo')} onChange={(e) => definir('tipo', e.target.value)}>
                     <option value="">Escolha o tipo</option>
-                    <option value="REFUND">Reembolso parcial</option>
-                    <option value="ADDITIONAL_TIME">Tempo adicional</option>
+                    {contrapropostas.map((t) => (
+                      <option key={t} value={t}>
+                        {CONTRAPROPOSTAS[t]}
+                      </option>
+                    ))}
                   </select>
                   {campo('tipo') === 'REFUND' ? <input className="input input-sm preco" inputMode="decimal" placeholder="Valor R$" value={campo('valor')} onChange={(e) => definir('valor', e.target.value)} /> : null}
                   {campo('tipo') === 'ADDITIONAL_TIME' ? (
@@ -198,7 +206,7 @@ export function ModalPedido({
                     type="button"
                     className="btn btn-sm"
                     disabled={ocupado || !campo('tipo')}
-                    onClick={() => executar('counterOffer', { tipo: campo('tipo'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo') })}
+                    onClick={() => executar('counterOffer', { tipo: campo('tipo'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo'), idPendencia: disputa.id })}
                   >
                     Enviar contraproposta
                   </button>
@@ -223,14 +231,14 @@ export function ModalPedido({
                 ))}
               </select>
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptCancellation')}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptCancellation', { idPendencia: cancelamentoCliente.applyId })}>
                   Aceitar cancelamento
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm"
                   disabled={ocupado || (cancelamentoCliente.motivos.length > 0 && !campo('recusa'))}
-                  onClick={() => executar('denyCancellation', { texto: campo('recusa') })}
+                  onClick={() => executar('denyCancellation', { texto: campo('recusa'), idPendencia: cancelamentoCliente.applyId })}
                 >
                   Recusar
                 </button>
@@ -264,14 +272,14 @@ export function ModalPedido({
               </select>
               <input className="input input-sm" placeholder="Explicação (opcional)" value={campo('explicacao')} onChange={(e) => definir('explicacao', e.target.value)} />
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptRefund')}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptRefund', { idPendencia: reembolso.applyId })}>
                   Aceitar reembolso
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm"
                   disabled={ocupado || !campo('motivoReembolso')}
-                  onClick={() => executar('denyRefund', { codigo: campo('motivoReembolso'), texto: campo('explicacao') })}
+                  onClick={() => executar('denyRefund', { codigo: campo('motivoReembolso'), texto: campo('explicacao'), idPendencia: reembolso.applyId })}
                 >
                   Recusar reembolso
                 </button>

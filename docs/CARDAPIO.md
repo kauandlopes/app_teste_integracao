@@ -25,7 +25,9 @@ Regras da fila:
 - Limite de frequência (errno 10005/12021, 429), erro 5xx ou rede: nova tentativa em 5, 15, 65, 120 e 300 s (8 vezes).
 - Recusa definitiva: o produto fica em "Erro" ou "Publicado em parte", com a mensagem da plataforma e "Reenviar".
 - `PATCH` de produto que o Hub ainda não conhece vira publicação completa.
-- Sabor, massa ou borda pausados são pausados de novo depois de cada republicação (o Hub os reativa).
+- A publicação do Hub não leva a disponibilidade de sabor, massa e borda: depois que os dois canais terminam, o ERP
+  envia as pausas e reativa o que voltou a ficar disponível (`PATCH .../opcoes/{opcao}`).
+- Ajustes esperam enquanto a 99Food processa a publicação. Alteração feita durante um envio entra na fila em seguida.
 
 ## 2. Formato do produto
 
@@ -91,7 +93,7 @@ Lê `GET /conexao/catalogo/unificado` e guarda uma cópia local por (plataforma,
 (leitura parcial), nada é apagado. Para itens que não nasceram no ERP:
 
 - preço e disponibilidade de item e de adicional;
-- criar, renomear e ordenar categoria (pausar só no iFood);
+- criar e renomear categoria; ordenar e pausar só no iFood (na 99Food cada troca reenvia o cardápio inteiro);
 - consulta de itens não vendáveis do iFood.
 
 Itens cadastrados no ERP aparecem com "Editar nos produtos do ERP": ajustes diretos seriam sobrescritos na próxima

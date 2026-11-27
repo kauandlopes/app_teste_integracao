@@ -94,17 +94,19 @@ async function processarPedido(pedidoId: string) {
     if (!ev) return;
     try {
       await processarEvento(ev);
-      db.prepare("UPDATE eventos SET estado = 'PROCESSADO', erro = '' WHERE id = ?").run(ev.id);
+      // So conclui se o corpo continua o mesmo: um webhook que chegou durante o processamento volta para a fila
+      db.prepare("UPDATE eventos SET estado = 'PROCESSADO', erro = '' WHERE id = ? AND corpo = ?").run(ev.id, ev.corpo);
     } catch (err) {
       const tentativas = ev.tentativas + 1;
       const erro = err instanceof Error ? err.message : String(err);
       const espera = ESPERAS_S[Math.min(tentativas - 1, ESPERAS_S.length - 1)];
-      db.prepare('UPDATE eventos SET estado = ?, tentativas = ?, proximaEm = ?, erro = ? WHERE id = ?').run(
+      db.prepare('UPDATE eventos SET estado = ?, tentativas = ?, proximaEm = ?, erro = ? WHERE id = ? AND corpo = ?').run(
         tentativas >= MAX_TENTATIVAS ? 'ERRO' : 'PENDENTE',
         tentativas,
         Date.now() + espera * 1000,
         erro,
         ev.id,
+        ev.corpo,
       );
       registrarLog({ metodo: 'EVENTO', url: `pedido ${pedidoId} · ${ev.tipo}`, status: 0, ms: 0, erroResumo: `Tentativa ${tentativas}: ${erro}`, reqBody: ev.corpo });
       notificar('pedidos', { pedidoId });
@@ -198,6 +200,12 @@ export function dadosDaAcao(p: RegistroPedido, acao: string, entrada: Record<str
   const e = entrada ?? {};
   const noventaENove = p.plataforma === '99FOOD';
   const pend = p.estado.pendencias;
+  // A tela informa a qual solicitacao esta respondendo: se outra tomou o lugar, o operador precisa ler de novo
+  const exibida = texto(e.idPendencia);
+  if (exibida) {
+    const atual = acao.endsWith('Refund') ? pend.reembolso?.applyId : (pend.cancelamentoCliente?.applyId ?? pend.disputa?.id);
+    if (exibida !== atual) throw new ErroDeAcao(409, 'A solicitação mudou. Confira e responda novamente.');
+  }
   switch (acao) {
     case 'dispatch':
     case 'updateCourier':
@@ -220,6 +228,7 @@ export function dadosDaAcao(p: RegistroPedido, acao: string, entrada: Record<str
     case 'counterOffer': {
       if (!pend.disputa) throw new ErroDeAcao(409, 'Não há disputa aberta.');
       const tipo = texto(e.tipo);
+      if (!pend.disputa.alternativas.some((a: any) => a?.type === tipo)) throw new ErroDeAcao(400, 'Esta disputa não aceita esse tipo de contraproposta.');
       if (tipo === 'REFUND') {
         const centavos = Math.round(Number(String(e.valor ?? '').replace(',', '.')) * 100);
         if (!(centavos > 0)) throw new ErroDeAcao(400, 'Informe o valor do reembolso proposto.');
@@ -300,24 +309,22 @@ function aplicarAcao(p: RegistroPedido, acao: string, dados: Record<string, any>
       } else pend.cancelamentoLoja = { motivo, desde: new Date().toISOString() };
       break;
     case 'acceptCancellation':
-      resolver(pend.cancelamentoCliente?.applyId ?? pend.disputa?.id);
-      pend.cancelamentoCliente = null;
-      pend.disputa = null;
-      if (imediato) {
+    case 'counterOffer':
+    case 'denyCancellation': {
+      // Resolve somente a solicitacao respondida: outra pode ter chegado enquanto a resposta estava no ar
+      resolver(dados.applyId ?? dados.disputeId);
+      if (pend.cancelamentoCliente?.applyId === dados.applyId) pend.cancelamentoCliente = null;
+      if (pend.disputa && (!dados.disputeId || pend.disputa.id === dados.disputeId) && !dados.applyId) pend.disputa = null;
+      if (acao === 'acceptCancellation' && imediato) {
         status('CANCELADO');
         est.motivoCancelamento = motivo || 'Cancelamento do cliente aceito';
       }
       break;
-    case 'counterOffer':
-    case 'denyCancellation':
-      resolver(pend.cancelamentoCliente?.applyId ?? pend.disputa?.id);
-      pend.cancelamentoCliente = null;
-      pend.disputa = null;
-      break;
+    }
     case 'acceptRefund':
     case 'denyRefund':
-      resolver(pend.reembolso?.applyId);
-      pend.reembolso = null;
+      resolver(dados.applyId);
+      if (pend.reembolso?.applyId === dados.applyId) pend.reembolso = null;
       break;
     case 'adjustItem':
       p.detalhePendente = true;
@@ -333,6 +340,7 @@ export async function executarAcao(pedidoId: string, acao: string, entrada: Reco
   const p = obterPedido(pedidoId);
   if (!p) throw new ErroDeAcao(404, 'Pedido não encontrado.');
   const tela = paraTela(p);
+  if (p.estado.somenteLeitura) throw new ErroDeAcao(409, 'Pedido do Delivery: opere pelo painel do Delivery.');
   const pendente =
     RESPOSTAS_A_PENDENCIA.has(acao) && (acao.endsWith('Refund') ? !!p.estado.pendencias.reembolso : !!(p.estado.pendencias.disputa || p.estado.pendencias.cancelamentoCliente));
   if (!pendente && !tela.acoes.some((a) => a.acao === acao)) throw new ErroDeAcao(409, 'Esta ação não vale para a etapa atual do pedido. Atualize a tela.');
@@ -376,13 +384,13 @@ export async function executarAcao(pedidoId: string, acao: string, entrada: Reco
 
 export const aceiteAutomaticoLigado = () => lerAjuste('aceiteAutomatico', 'false') === 'true';
 
-function avisarFalhaAutomatica(pedidoId: string, err: unknown) {
+function avisarFalhaAutomatica(pedidoId: string, err: unknown, oQue = 'Aceite automático') {
   const p = obterPedido(pedidoId);
   if (!p) return;
   const id = `auto-${Date.now()}`;
-  p.estado.avisos = [{ id, em: new Date().toISOString(), nivel: 'alerta' as const, texto: `Aceite automático falhou: ${err instanceof Error ? err.message : err}` }, ...p.estado.avisos].slice(0, 30);
+  p.estado.avisos = [{ id, em: new Date().toISOString(), nivel: 'alerta' as const, texto: `${oQue} falhou: ${err instanceof Error ? err.message : err}` }, ...p.estado.avisos].slice(0, 30);
   salvarPedido(p);
-  notificar('pedidos', { pedidoId, aviso: 'Aceite automático falhou. Aceite manualmente.' });
+  notificar('pedidos', { pedidoId, aviso: `${oQue} falhou. Faça manualmente.` });
 }
 
 async function aceitarAutomaticamente(pedidoId: string) {
@@ -407,8 +415,16 @@ export async function iniciarAgendados() {
   for (const { id } of linhas) {
     const p = obterPedido(id)!;
     const inicio = extrasDe(p.plataforma, p.detalhe).agendamento?.inicioPreparo;
-    if (!inicio || p.estado.preparoIniciado || new Date(inicio).getTime() > Date.now()) continue;
-    await executarAcao(id, 'startPreparation').catch((err) => avisarFalhaAutomatica(id, err));
+    if (!inicio || p.estado.preparoIniciado || p.estado.agendamentoRecusado || p.estado.somenteLeitura || new Date(inicio).getTime() > Date.now()) continue;
+    await executarAcao(id, 'startPreparation').catch((err) => {
+      // Recusa definitiva nao se repete a cada ciclo
+      if (err instanceof ErroDeAcao && err.status < 500) {
+        const recusado = obterPedido(id)!;
+        recusado.estado.agendamentoRecusado = true;
+        salvarPedido(recusado);
+      }
+      avisarFalhaAutomatica(id, err, 'Início do preparo agendado');
+    });
   }
 }
 

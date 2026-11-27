@@ -15,6 +15,10 @@ export interface EstadoPedido {
   /** Ids de disputas e solicitacoes ja respondidas ou encerradas: evento atrasado nao as reabre. */
   resolvidas: string[];
   aceiteAutomaticoFeito: boolean;
+  /** Importado do Delivery: o ERP so consulta. */
+  somenteLeitura: boolean;
+  /** A plataforma recusou o inicio automatico do preparo agendado. */
+  agendamentoRecusado: boolean;
 }
 
 export interface RegistroPedido {
@@ -47,6 +51,8 @@ const estadoVazio = (): EstadoPedido => ({
   preparoIniciado: false,
   resolvidas: [],
   aceiteAutomaticoFeito: false,
+  somenteLeitura: false,
+  agendamentoRecusado: false,
 });
 
 function deLinha(l: any): RegistroPedido {
@@ -169,7 +175,8 @@ export function paraTela(p: RegistroPedido): PedidoErp {
     preparoIniciado: p.estado.preparoIniciado,
     criadoEm: p.criadoEm,
     atualizadoEm: p.atualizadoEm,
-    acoes: acoesDisponiveis({
+    somenteLeitura: p.estado.somenteLeitura,
+    acoes: p.estado.somenteLeitura ? [] : acoesDisponiveis({
       id: p.id,
       plataforma,
       statusKanban: p.statusKanban,

@@ -70,7 +70,7 @@ export function GestorCatalogo({
   const opcoesDe = (p: ProdutoErp) => [
     ...(p.pizza
       ? [
-          { titulo: 'Sabores', opcoes: p.pizza.sabores.map((o) => ({ ...o, valor: o.acrescimo })) },
+          { titulo: 'Sabores', opcoes: p.pizza.sabores.map((o) => ({ ...o, valor: o.acrescimo, porTamanho: !!o.acrescimoPorTamanho })) },
           { titulo: 'Massas', opcoes: p.pizza.massas.map((o) => ({ ...o, valor: o.preco })) },
           { titulo: 'Bordas', opcoes: p.pizza.bordas.map((o) => ({ ...o, valor: o.preco })) },
         ]
@@ -198,7 +198,11 @@ export function GestorCatalogo({
                             <span style={{ flex: 1, minWidth: 140 }}>
                               {o.nome} <span className="suave">· {o.codigo}</span>
                             </span>
-                            <PrecoEditavel valor={o.valor} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { preco }), 'Preço salvo. Enviando.')} />
+                            {'porTamanho' in o && o.porTamanho ? (
+                              <span className="suave">preço por tamanho (editar o produto)</span>
+                            ) : (
+                              <PrecoEditavel valor={o.valor} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { preco }), 'Preço salvo. Enviando.')} />
+                            )}
                             <BotaoDisponivel
                               disponivel={o.disponivel}
                               desabilitado={!!ocupado}

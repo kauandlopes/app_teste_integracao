@@ -157,3 +157,76 @@ test('ajustes direto na plataforma usam o formato de cada canal', async () => {
   assert.deepEqual(corpos[2], ['IFOOD', { itemId: 'B', status: 'UNAVAILABLE' }]);
   assert.deepEqual(corpos[3], ['99FOOD', { optionId: 'O', groupId: 'G', price: 2 }]);
 });
+
+const pausas = () => a.chamadasDe('PATCH', /opcoes\//).map((c) => [c.caminho.split('/').at(-1), c.corpo.disponivel]);
+
+test('pausa de sabor espera a 99Food terminar e reativar pelo editor chega as plataformas', async () => {
+  publicado(canais('PUBLICADO', 'PROCESSANDO'));
+  ajustes();
+  const { produto } = (await a.erp('PUT', '/catalogo/produtos', pizza)).json;
+  await esperar();
+  assert.deepEqual(pausas(), [], 'nada enquanto processa');
+  a.quando('GET', /\/catalogo\/produtos\//, () => ({ json: { canais: canais() } }));
+  await pub.acompanharProcessamento();
+  await esperar();
+  assert.deepEqual(pausas(), [['CAM', false]]);
+  publicado();
+  produto.pizza.sabores[1].disponivel = true;
+  await a.erp('PUT', '/catalogo/produtos', produto);
+  await esperar();
+  assert.deepEqual(pausas().at(-1), ['CAM', true]);
+});
+
+test('alteracao e salvamento durante um envio nao se perdem', async () => {
+  ajustes();
+  let durante: (() => void) | null = null;
+  a.quando('POST', /\/catalogo\/produtos$/, () => {
+    durante?.();
+    durante = null;
+    return { json: { ok: true, resultados: [{ canais: canais() }] } };
+  });
+  const rotas = await import('../src/server/catalogo/publicador.js');
+  durante = () => {
+    const p = rotas.obterProduto('LANCHE')!;
+    rotas.gravarProduto({ ...p, disponivel: false });
+    rotas.enfileirar('LANCHE', 'PATCH', { disponivel: false });
+  };
+  await a.erp('PUT', '/catalogo/produtos', { ...lanche, codigo: 'LANCHE' });
+  await esperar();
+  assert.deepEqual(a.chamadasDe('PATCH', /produtos\/LANCHE$/).map((c) => c.corpo), [{ disponivel: false }]);
+
+  // salvar enquanto a exclusao esta no ar mantem o produto e republica
+  a.quando('DELETE', /\/catalogo\/produtos\//, () => {
+    rotas.gravarProduto({ ...rotas.obterProduto('LANCHE')!, nome: 'Novo nome' });
+    rotas.enfileirar('LANCHE', 'PUBLICAR');
+    return { json: { ok: true, resultado: { canais: canais('REMOVIDO', 'REMOVIDO') } } };
+  });
+  await a.erp('DELETE', '/catalogo/produtos/LANCHE');
+  await esperar();
+  const lista = (await a.erp('GET', '/catalogo/produtos')).json;
+  assert.equal(lista[0]?.produto.nome, 'Novo nome');
+  assert.equal(a.chamadasDe('POST', /catalogo\/produtos$/).at(-1)!.corpo.nome, 'Novo nome');
+});
+
+test('canal com erro nao interrompe o acompanhamento e 429 do canal e repetido', async () => {
+  publicado({ IFOOD: { estado: 'ERRO', erro: 'Categoria recusada' }, '99FOOD': { estado: 'PROCESSANDO' } } as any);
+  await a.erp('PUT', '/catalogo/produtos', lanche);
+  await esperar();
+  a.quando('GET', /\/catalogo\/produtos\//, () => ({ json: { canais: { IFOOD: { estado: 'ERRO', erro: 'Categoria recusada' }, '99FOOD': { estado: 'PUBLICADO' } } } }));
+  await pub.acompanharProcessamento();
+  assert.equal((await a.erp('GET', '/catalogo/produtos')).json[0].canais['99FOOD'].estado, 'PUBLICADO');
+
+  a.limpar();
+  publicado({ IFOOD: { estado: 'ERRO', erro: 'A plataforma respondeu HTTP 429.', detalhes: { statusHttp: 429 } }, '99FOOD': { estado: 'PUBLICADO' } } as any);
+  await a.erp('PUT', '/catalogo/produtos', lanche);
+  await esperar();
+  assert.equal((await a.erp('GET', '/catalogo/produtos')).json[0].operacoesPendentes, 1);
+});
+
+test('preco rapido de sabor com acrescimo por tamanho e recusado', async () => {
+  publicado();
+  ajustes();
+  const comTamanho = { ...pizza, pizza: { ...pizza.pizza, sabores: [{ codigo: 'CAL', nome: 'Calabresa', acrescimoPorTamanho: { G: 10, M: 5 } }] } };
+  const { produto } = (await a.erp('PUT', '/catalogo/produtos', comTamanho)).json;
+  assert.equal((await a.erp('PATCH', `/catalogo/produtos/${produto.codigo}/opcoes/CAL`, { preco: 12 })).status, 400);
+});

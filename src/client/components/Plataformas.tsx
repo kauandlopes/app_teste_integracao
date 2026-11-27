@@ -14,7 +14,8 @@ export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number
   }
   const salvar = () => {
     const novo = lerPreco(texto);
-    if (Number.isFinite(novo) && novo >= 0) {
+    // Campo vazio nao vira preco zero
+    if (texto.trim() && Number.isFinite(novo) && novo >= 0) {
       aoSalvar(novo);
       setTexto(null);
     }
@@ -209,12 +210,16 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
           <div className="cabecalho-categoria">
             <strong>{c.nome}</strong>
             <div className="linha">
-              <button type="button" className="btn-icon" title="Subir categoria" disabled={ocupado || indice === 0} onClick={() => void executar(() => erpApi.alterarCategoria(c.id, { plataforma: canal, mover: 'subir' }), 'Ordem atualizada.')}>
+              {canal === 'IFOOD' ? (
+                <>
+                  <button type="button" className="btn-icon" title="Subir categoria" disabled={ocupado || indice === 0} onClick={() => void executar(() => erpApi.alterarCategoria(c.id, { plataforma: canal, mover: 'subir' }), 'Ordem atualizada.')}>
                 <IconeSeta direcao="cima" />
               </button>
               <button type="button" className="btn-icon" title="Descer categoria" disabled={ocupado || indice === doCanal.length - 1} onClick={() => void executar(() => erpApi.alterarCategoria(c.id, { plataforma: canal, mover: 'descer' }), 'Ordem atualizada.')}>
                 <IconeSeta direcao="baixo" />
               </button>
+                </>
+              ) : null}
               <button type="button" className="btn btn-sm" onClick={() => setEdicaoCategoria({ id: c.id, nome: c.nome })}>
                 Renomear
               </button>

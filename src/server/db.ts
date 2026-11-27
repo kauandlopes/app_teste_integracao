@@ -129,6 +129,13 @@ garantirColuna('pedidos', 'modalidade', "TEXT NOT NULL DEFAULT 'ENTREGA_PROPRIA'
 garantirColuna('pedidos', 'detalhePendente', 'INTEGER NOT NULL DEFAULT 1');
 garantirColuna('pedidos', 'estadoJson', "TEXT NOT NULL DEFAULT '{}'");
 
+// Intencao de excluir e pausas de pizza ja enviadas as plataformas
+garantirColuna('produtos', 'removendo', 'INTEGER NOT NULL DEFAULT 0');
+garantirColuna('produtos', 'pausadasJson', "TEXT NOT NULL DEFAULT '[]'");
+garantirColuna('produtos', 'reaplicarPausas', 'INTEGER NOT NULL DEFAULT 0');
+// Envio interrompido por reinicio volta para a fila
+db.prepare("UPDATE fila_catalogo SET estado = 'PENDENTE' WHERE estado = 'ENVIANDO'").run();
+
 export interface ConfigRow {
   id: number;
   baseUrl: string;

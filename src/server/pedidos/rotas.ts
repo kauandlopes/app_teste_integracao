@@ -82,7 +82,11 @@ export function rotasPedidos(): Router {
     let importados = 0;
     for (const d of Array.isArray(r.json) ? r.json : []) {
       if (!d?.id || !detalheValido(d)) continue;
-      const p = obterPedido(String(d.id)) ?? pedidoNovo(String(d.id), d.canal ?? 'TD', d.criadoEm ?? new Date().toISOString());
+      const existente = obterPedido(String(d.id));
+      // Pedido que ja chegou por evento continua operavel e nao e sobrescrito pela copia do Delivery
+      if (existente && !existente.estado.somenteLeitura) continue;
+      const p = existente ?? pedidoNovo(String(d.id), d.canal ?? 'TD', d.criadoEm ?? new Date().toISOString());
+      p.estado.somenteLeitura = true;
       mesclarDetalhe(p, d);
       p.modalidade = modalidadeDe(d);
       salvarPedido(p);

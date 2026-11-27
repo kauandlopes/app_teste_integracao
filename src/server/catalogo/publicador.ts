@@ -13,8 +13,18 @@ export type Operacao = 'PUBLICAR' | 'PATCH' | 'PATCH_OPCAO' | 'REMOVER';
 
 const ESPERAS_S = [5, 15, 65, 120, 300];
 const MAX_TENTATIVAS = 8;
-/** Recusas que passam sozinhas: limite de frequencia da 99Food, tarefa de cardapio em andamento e 429. */
-const TEMPORARIO = /10005|12021|HTTP_429|frequency|LIMITE_DA_INSTALACAO|RESULTADO_INCERTO/i;
+/**
+ * Recusas que passam sozinhas: limite de frequencia (429 ou errno 10005/12021), publicacao da 99Food em andamento e
+ * resultado incerto. O Hub grava no canal so a mensagem e o status HTTP, sem o codigo do erro.
+ */
+const TEMPORARIO = /10005|12021|429|HTTP 5\d\d|frequency|LIMITE_DA_INSTALACAO|limite de requisi|sendo publicado|RESULTADO_INCERTO|resultado incerto|indispon/i;
+
+const falhaTemporaria = (c: SituacaoCanal) => {
+  const status = Number((c.detalhes as { statusHttp?: unknown } | undefined)?.statusHttp);
+  return status === 429 || status >= 500 || TEMPORARIO.test(c.erro ?? '');
+};
+
+
 
 interface LinhaProduto {
   codigo: string;
@@ -23,6 +33,9 @@ interface LinhaProduto {
   estado: EstadoProduto;
   erro: string;
   atualizadoEm: string;
+  removendo: number;
+  pausadasJson: string;
+  reaplicarPausas: number;
 }
 interface Tarefa {
   id: number;
@@ -43,7 +56,7 @@ export const obterProduto = (codigo: string): ProdutoErp | null => {
 export function listarProdutos(): ProdutoCadastrado[] {
   const linhas = db.prepare('SELECT * FROM produtos ORDER BY atualizadoEm DESC').all() as LinhaProduto[];
   const pendentes = new Map(
-    (db.prepare("SELECT codigo, COUNT(*) AS n FROM fila_catalogo WHERE estado = 'PENDENTE' GROUP BY codigo").all() as Array<{ codigo: string; n: number }>).map((l) => [l.codigo, l.n]),
+    (db.prepare("SELECT codigo, COUNT(*) AS n FROM fila_catalogo WHERE estado IN ('PENDENTE','ENVIANDO') GROUP BY codigo").all() as Array<{ codigo: string; n: number }>).map((l) => [l.codigo, l.n]),
   );
   return linhas.map((l) => ({
     produto: JSON.parse(l.definicaoJson),
@@ -77,12 +90,50 @@ const temPendente = (codigo: string, operacao: Operacao) =>
   !!db.prepare("SELECT 1 FROM fila_catalogo WHERE codigo = ? AND operacao = ? AND estado = 'PENDENTE'").get(codigo, operacao);
 
 export function enfileirar(codigo: string, operacao: Operacao, dados: Record<string, unknown> = {}, opcao = '') {
-  // Publicacao completa leva a definicao atual: ajustes pendentes ficam redundantes
-  if (operacao === 'PUBLICAR' || operacao === 'REMOVER') db.prepare("DELETE FROM fila_catalogo WHERE codigo = ?").run(codigo);
-  else if (operacao === 'PATCH' && temPendente(codigo, 'PUBLICAR')) return;
+  // Publicacao completa leva a definicao atual: ajustes ainda nao enviados ficam redundantes. A tarefa em envio
+  // tambem sai da fila, e o resultado dela e ignorado quando voltar
+  if (operacao === 'PUBLICAR' || operacao === 'REMOVER') {
+    db.prepare('DELETE FROM fila_catalogo WHERE codigo = ?').run(codigo);
+    db.prepare('UPDATE produtos SET removendo = ? WHERE codigo = ?').run(operacao === 'REMOVER' ? 1 : 0, codigo);
+  } else if (operacao === 'PATCH' && temPendente(codigo, 'PUBLICAR')) return;
   db.prepare('INSERT INTO fila_catalogo (codigo, operacao, opcao, dadosJson) VALUES (?, ?, ?, ?)').run(codigo, operacao, opcao, JSON.stringify(dados));
   marcar(codigo, operacao === 'REMOVER' ? 'REMOVENDO' : 'NA_FILA');
   void processarCatalogo();
+}
+
+/**
+ * Sabores, massas e bordas: o Hub nao leva "disponivel" deles na publicacao. Depois que os dois canais terminam,
+ * o ERP envia as pausas e reativa o que estava pausado nas plataformas e voltou a ficar disponivel.
+ */
+function sincronizarPausas(codigo: string) {
+  const produto = obterProduto(codigo);
+  const l = linha(codigo);
+  if (!produto?.pizza || !l) return;
+  const pausadas = opcoesPausadasDaPizza(produto);
+  const existentes = new Set([...produto.pizza.sabores, ...produto.pizza.massas, ...produto.pizza.bordas].map((o) => o.codigo));
+  const anteriores = (JSON.parse(l.pausadasJson || '[]') as string[]).filter((o) => existentes.has(o));
+  db.prepare('UPDATE produtos SET reaplicarPausas = 0 WHERE codigo = ?').run(codigo);
+  for (const opcao of pausadas) enfileirar(codigo, 'PATCH_OPCAO', { disponivel: false }, opcao);
+  for (const opcao of anteriores.filter((o) => !pausadas.includes(o))) enfileirar(codigo, 'PATCH_OPCAO', { disponivel: true }, opcao);
+}
+
+/** Registra o que esta pausado nas plataformas depois de um ajuste de opcao aceito. */
+function registrarPausa(codigo: string, opcao: string, disponivel: boolean) {
+  const l = linha(codigo);
+  if (!l) return;
+  const lista = new Set(JSON.parse(l.pausadasJson || '[]') as string[]);
+  if (disponivel) lista.delete(opcao);
+  else lista.add(opcao);
+  db.prepare('UPDATE produtos SET pausadasJson = ? WHERE codigo = ?').run(JSON.stringify([...lista]), codigo);
+}
+
+const processando = (canais: Partial<Record<CanalPublicacao, SituacaoCanal>>) => Object.values(canais).some((c) => c.estado === 'PROCESSANDO');
+const removidoDosCanais = (canais: Partial<Record<CanalPublicacao, SituacaoCanal>>) => Object.values(canais).every((c) => c.estado === 'REMOVIDO' || c.estado === 'SEM_LOJA');
+
+function apagarDoErp(codigo: string) {
+  db.prepare('DELETE FROM produtos WHERE codigo = ?').run(codigo);
+  db.prepare('DELETE FROM fila_catalogo WHERE codigo = ?').run(codigo);
+  notificar('catalogo', { codigo, removido: true });
 }
 
 /** Resume a situacao dos dois canais em um estado unico do produto. */
@@ -119,28 +170,35 @@ function adiar(t: Tarefa, erro: string) {
     return;
   }
   const espera = ESPERAS_S[Math.min(tentativas - 1, ESPERAS_S.length - 1)];
-  db.prepare('UPDATE fila_catalogo SET tentativas = ?, proximaEm = ?, erro = ? WHERE id = ?').run(tentativas, Date.now() + espera * 1000, erro, t.id);
+  db.prepare("UPDATE fila_catalogo SET estado = 'PENDENTE', tentativas = ?, proximaEm = ?, erro = ? WHERE id = ?").run(tentativas, Date.now() + espera * 1000, erro, t.id);
   marcar(t.codigo, 'NA_FILA', `Nova tentativa em ${espera} s. ${erro}`);
 }
 
+const naFila = (id: number) => !!db.prepare('SELECT 1 FROM fila_catalogo WHERE id = ?').get(id);
+
 async function executar(t: Tarefa) {
-  if (!linha(t.codigo)) return concluirTarefa(t.id);
+  const l = linha(t.codigo);
+  if (!l) return concluirTarefa(t.id);
+  // Ajuste enquanto a 99Food ainda processa a publicacao seria recusado: espera, sem gastar tentativa
+  if ((t.operacao === 'PATCH' || t.operacao === 'PATCH_OPCAO') && processando(JSON.parse(l.canaisJson || '{}'))) {
+    db.prepare('UPDATE fila_catalogo SET proximaEm = ? WHERE id = ?').run(Date.now() + 15_000, t.id);
+    return;
+  }
+  db.prepare("UPDATE fila_catalogo SET estado = 'ENVIANDO' WHERE id = ?").run(t.id);
   marcar(t.codigo, t.operacao === 'REMOVER' ? 'REMOVENDO' : 'ENVIANDO');
   const r = await enviar(t);
+  // Enquanto a requisicao estava no ar, uma publicacao ou exclusao mais nova substituiu esta tarefa
+  if (!naFila(t.id)) return;
   const codigoErro = String((r.json as any)?.codigo ?? '');
 
   if (!r.ok) {
     // Ajuste de produto que o Hub ainda nao conhece vira publicacao completa
     if (r.status === 404 && codigoErro === 'NAO_ENCONTRADO') {
       concluirTarefa(t.id);
-      if (t.operacao === 'REMOVER') {
-        db.prepare('DELETE FROM produtos WHERE codigo = ?').run(t.codigo);
-        notificar('catalogo', { codigo: t.codigo, removido: true });
-        return;
-      }
+      if (t.operacao === 'REMOVER') return apagarDoErp(t.codigo);
       return enfileirar(t.codigo, 'PUBLICAR');
     }
-    const temporario = r.status === 0 || r.status === 429 || r.status >= 500 || TEMPORARIO.test(`${codigoErro} ${r.text}`);
+    const temporario = r.status === 0 || r.status === 429 || r.status >= 500 || TEMPORARIO.test(`${codigoErro} ${(r.json as any)?.erro ?? ''}`);
     if (temporario) return adiar(t, mensagemDoHub(r));
     concluirTarefa(t.id);
     return marcar(t.codigo, 'ERRO', mensagemDoHub(r));
@@ -150,25 +208,25 @@ async function executar(t: Tarefa) {
   const canais = (registro?.canais ?? {}) as Partial<Record<CanalPublicacao, SituacaoCanal>>;
   const resumo = resumirCanais(canais);
   // O Hub responde 200 mesmo quando um canal recusa: limite de frequencia e repetido sozinho
-  if (resumo.erro && TEMPORARIO.test(JSON.stringify(canais))) {
+  if (Object.values(canais).some((c) => c.estado === 'ERRO' && falhaTemporaria(c))) {
     marcar(t.codigo, 'NA_FILA', resumo.erro, canais);
     return adiar(t, resumo.erro);
   }
   concluirTarefa(t.id);
 
   if (t.operacao === 'REMOVER') {
-    const removido = Object.values(canais).every((c) => c.estado === 'REMOVIDO' || c.estado === 'SEM_LOJA');
-    if (removido) {
-      db.prepare('DELETE FROM produtos WHERE codigo = ?').run(t.codigo);
-      notificar('catalogo', { codigo: t.codigo, removido: true });
-      return;
-    }
+    if (removidoDosCanais(canais)) return apagarDoErp(t.codigo);
     return marcar(t.codigo, resumo.estado === 'PROCESSANDO' ? 'REMOVENDO' : resumo.estado, resumo.erro, canais);
   }
 
   marcar(t.codigo, resumo.estado, resumo.erro, canais);
+  if (t.operacao === 'PATCH_OPCAO' && !resumo.erro) {
+    const disponivel = JSON.parse(t.dadosJson).disponivel;
+    if (typeof disponivel === 'boolean') registrarPausa(t.codigo, t.opcao, disponivel);
+  }
   if (t.operacao === 'PUBLICAR') {
-    for (const opcao of opcoesPausadasDaPizza(obterProduto(t.codigo)!)) enfileirar(t.codigo, 'PATCH_OPCAO', { disponivel: false }, opcao);
+    if (processando(canais)) db.prepare('UPDATE produtos SET reaplicarPausas = 1 WHERE codigo = ?').run(t.codigo);
+    else sincronizarPausas(t.codigo);
   }
 }
 
@@ -199,23 +257,29 @@ export async function processarCatalogo(): Promise<void> {
   }
 }
 
-/** Consulta o resultado das publicacoes que a 99Food processa em segundo plano. */
+/** Consulta o resultado das publicacoes que a 99Food processa em segundo plano (mesmo que o outro canal falhe). */
 export async function acompanharProcessamento(): Promise<void> {
-  const linhas = db.prepare("SELECT codigo, estado, canaisJson FROM produtos WHERE estado IN ('PROCESSANDO','REMOVENDO')").all() as LinhaProduto[];
+  const linhas = db.prepare(`SELECT * FROM produtos WHERE canaisJson LIKE '%"PROCESSANDO"%'`).all() as LinhaProduto[];
+  const ocupado = (codigo: string) => !!db.prepare('SELECT 1 FROM fila_catalogo WHERE codigo = ? AND estado = \'ENVIANDO\'').get(codigo);
   for (const l of linhas) {
-    if (db.prepare("SELECT 1 FROM fila_catalogo WHERE codigo = ? AND estado = 'PENDENTE'").get(l.codigo)) continue;
+    if (ocupado(l.codigo)) continue;
     const r = await hubFetch<any>(`/hub/v1/conexao/catalogo/produtos/${encodeURIComponent(l.codigo)}`, {
       silenciarSucesso: (j: any) => Object.values(j?.canais ?? {}).some((c: any) => c.estado === 'PROCESSANDO'),
     });
     if (!r.ok || !r.json?.canais) continue;
+    // O produto mudou durante a consulta: a resposta ja esta velha
+    const atual = linha(l.codigo);
+    if (!atual || atual.canaisJson !== l.canaisJson || ocupado(l.codigo)) continue;
     const canais = r.json.canais as Partial<Record<CanalPublicacao, SituacaoCanal>>;
-    const resumo = resumirCanais(canais);
-    if (resumo.estado === 'PROCESSANDO') continue;
-    if (l.estado === 'REMOVENDO' && Object.values(canais).every((c) => c.estado === 'REMOVIDO' || c.estado === 'SEM_LOJA')) {
-      db.prepare('DELETE FROM produtos WHERE codigo = ?').run(l.codigo);
-      notificar('catalogo', { codigo: l.codigo, removido: true });
+    if (atual.removendo && removidoDosCanais(canais)) {
+      apagarDoErp(l.codigo);
       continue;
     }
-    marcar(l.codigo, resumo.estado, resumo.erro, canais);
+    const resumo = resumirCanais(canais);
+    const naEspera = !!db.prepare("SELECT 1 FROM fila_catalogo WHERE codigo = ? AND estado = 'PENDENTE'").get(l.codigo);
+    const estado = atual.removendo && resumo.estado === 'PROCESSANDO' ? 'REMOVENDO' : naEspera ? 'NA_FILA' : resumo.estado;
+    if (JSON.stringify(canais) !== atual.canaisJson || estado !== atual.estado) marcar(l.codigo, estado, resumo.erro, canais);
+    if (!processando(canais) && atual.reaplicarPausas) sincronizarPausas(l.codigo);
   }
+  void processarCatalogo();
 }

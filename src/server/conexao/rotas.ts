@@ -99,7 +99,8 @@ export function rotasConexao(): Router {
       nomeLoja: r.json.nome ?? nome,
       conexaoId: r.json.conexaoId,
       tokenConexao,
-      webhookSegredo: r.json.credenciais?.webhookSegredo ?? (mesma ? cur.webhookSegredo : ''),
+      // Na mesma conexao vale o segredo salvo: o Hub pode devolver o da criacao, ja trocado depois
+      webhookSegredo: (mesma && cur.webhookSegredo) || r.json.credenciais?.webhookSegredo || '',
       transporte: r.json.transporte?.modo ?? transporte,
       estadoConexao: r.json.estado ?? '',
       lojasVinculadasJson: JSON.stringify(r.json.lojas ?? []),
