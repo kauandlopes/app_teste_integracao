@@ -241,8 +241,15 @@ O ERP usa os próprios códigos; reenviar o mesmo `codigo` atualiza o produto.
 
 A resposta é `200` mesmo quando um canal falha: confira `ok` e `canais.IFOOD.estado` / `canais.99FOOD.estado` (`PUBLICADO`, `PROCESSANDO`, `REMOVIDO`, `ERRO` ou `SEM_LOJA`). Com `ERRO`, trate `erroCodigo` e mostre `erro`, que traz o motivo da plataforma.
 
+**Muitos produtos (cardápio inteiro):**
+- Envie um produto por requisição, com até 4 requisições ao mesmo tempo. Evite lotes grandes numa só chamada: o servidor corta em 60 segundos.
+- O limite de 1 envio por minuto da 99Food não é 1 produto por minuto: tudo o que está pendente vai no mesmo envio. Medido em 28/11/2026: 120 produtos publicados nas duas plataformas em 88 s e excluídos em 87 s.
+- A 99Food aceita 5 fotos novas a cada 10 segundos (120 fotos diferentes levam ao menos 4 minutos). Repetir a mesma foto não gasta esse limite.
+- Para acompanhar muitos produtos, use `GET catalogo/produtos` (uma chamada), não um `GET` por código.
+
 Na 99Food:
-- Com a janela de 1 envio por minuto livre, o envio sai na própria requisição; ocupada, vem `PROCESSANDO` com `envioEmSegundos`. O resultado sai em até 15 minutos.
+- O produto responde `PROCESSANDO` com `envioEmSegundos`: o Hub espera poucos segundos para juntar os produtos que chegam em sequência e envia todos de uma vez. O resultado sai em até 15 minutos.
+- Uma foto nova só aparece na loja depois da análise de imagem da 99Food; o aviso do canal informa isso.
 - A leitura que a 99Food devolve é a verdade: itens apagados no portal não exigem confirmação. Só leitura ilegível interrompe (`CARDAPIO_99_ILEGIVEL`).
 - Uma operação recusada não leva as outras do lote para `ERRO`: o Hub divide o lote até isolar a que falha.
 - `DELETE` vale para qualquer produto, inclusive o último. Se a 99Food recusar o envio que o apagaria, o canal fica `REMOVIDO`, o item é pausado (veja `avisos[]`) e sai no próximo envio aceito.
