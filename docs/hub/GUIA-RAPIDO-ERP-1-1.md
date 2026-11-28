@@ -205,8 +205,8 @@ No detalhe unificado consultado na plataforma vêm também:
 | `ajustes` | `descontoPlataforma`, `descontoLoja`, `taxaServico`, `gorjeta`, `dinheiroAReceber`, `repasseLoja` (reais; os dois últimos podem ser `null`) |
 | `pedidoTeste` | `true` quando a plataforma marca o pedido como teste: não produzir nem faturar |
 | `pagamentos` | `forma`, `bandeira`, `valor`, `pagoOnline` |
-| `agendamento` | `agendado`, `previsaoEntrega`, `inicioPreparo` |
-| `codigos` | `retirada`, `coleta`, `entrega` |
+| `agendamento` | `agendado`, `previsaoEntrega`, `inicioPreparo` (iFood), `previsaoPronto` (99Food) |
+| `codigos` | `retirada` (cliente no balcão), `coleta` (entregador da plataforma), `entrega` (`null` na 99Food) |
 
 Ações:
 
@@ -215,11 +215,17 @@ Ações:
 | iFood | `confirm`, `startPreparation`, `readyToPickup`, `dispatch`, `requestCancellation`, `acceptCancellation`, `denyCancellation`, `counterOffer`, `validatePickupCode`, `assignDriver`, `goingToOrigin`, `arrivedAtOrigin`, `arrivedAtDestination`, `verifyDeliveryCode`, `tracking`, `virtualBag`, `cancellationReasons` |
 | 99Food | `confirm`, `readyToPickup`, `dispatch`, `updateCourier`, `delivered` (ou `conclude`), `pickedUp`, `validatePickupCode`, `payConfirm`, `partialCancel`, `adjustItem`, `requestCancellation`, `acceptCancellation`, `denyCancellation`, `acceptRefund`, `denyRefund` |
 
-- No iFood, `conclude`, `delivered`, `updateCourier` e `payConfirm` não chamam a plataforma (`localOnly: true`).
+- **Concluir no iFood:** não existe comando de conclusão. `conclude` ou `delivered` com `dados.code` conferem o código do cliente (igual a `verifyDeliveryCode`). Sem código: `422 CODIGO_ENTREGA_OBRIGATORIO` (o pedido recebeu `DELIVERY_DROP_CODE_REQUESTED`) ou `422 CONCLUSAO_PELO_IFOOD`; nada foi concluído. A conclusão chega pelo evento `CONCLUDED`; depois dele a ação responde `{"ok":true,"status":"CONCLUDED","concluido":true}`.
+- **Códigos no iFood:** `validatePickupCode` e `verifyDeliveryCode` com `dados.code`. Código recusado: `422 CODIGO_INVALIDO` (pode corrigir e repetir). Pedido que não usa o código: `422 CODIGO_NAO_SE_APLICA`. Etapas de logística (`assignDriver`, `goingToOrigin`, `arrivedAtOrigin`, `arrivedAtDestination`) respondem `422 SEM_PERMISSAO_LOGISTICA` enquanto o aplicativo não tiver o módulo.
+- **Cancelamento no iFood:** `requestCancellation` exige `dados.cancellationCode` da lista de motivos do pedido (`400 MOTIVO_INVALIDO`, com a lista). Comando em pedido já cancelado: `409 PEDIDO_ENCERRADO`.
+- **Código errado na 99Food:** `422 CODIGO_INVALIDO`. Pelo proxy nativo a resposta é a do iFood: `200` com `success` ou `valid` igual a `false` é recusa.
+- No iFood, `updateCourier` e `payConfirm` não chamam a plataforma (`localOnly: true`).
+- **Etapas da 99Food:** `startPreparation` confirma o pedido. Antes de despachar, concluir ou validar código o Hub envia `confirm` e `ready`; se uma delas falhar, a ação não é enviada e o erro traz `detalhes.etapaPrevia`.
+- **Respostas ao cliente:** no detalhe unificado, `acoesPermitidas` inclui `acceptCancellation`/`denyCancellation`, `counterOffer` (iFood com alternativas) e `acceptRefund`/`denyRefund` enquanto a solicitação estiver aberta.
 - **Cancelar no iFood:** `dados.cancellationCode` (de `subrecurso?tipo=motivos`; sem ele vai `501`).
 - **Cancelar na 99Food:** o motivo é obrigatório e precisa estar na lista de motivos (`dados.cancelCodeId`, por exemplo `"1010"`). Sem motivo válido: `400 MOTIVO_INVALIDO`, com `detalhes.motivos`. Com motivo válido, o Hub confirma o pedido antes de cancelar.
-- **Entrega própria na 99Food:** `dispatch` exige `dados.courierName` e `dados.courierPhone` (`400 ENTREGADOR_OBRIGATORIO`).
-- **Disputa no iFood:** `acceptCancellation` ou `denyCancellation` com `dados.disputeId`. A contraproposta (`counterOffer` ou `CONTRAPROPOSTA`) exige `disputeId`, `alternativeId` (ambos do evento da disputa) e `type` (`REFUND` ou `ADDITIONAL_TIME`); sem algum deles, `400 CONTRAPROPOSTA_INCOMPLETA`:
+- **Entrega própria na 99Food:** `dispatch` exige `dados.courierName` e `dados.courierPhone` (`400 ENTREGADOR_OBRIGATORIO`). Sem entregador o comando vale só para entrega da 99Food; retirada responde `422 DESPACHO_NAO_SE_APLICA` e modalidade não informada `422 MODALIDADE_DESCONHECIDA`.
+- **Disputa no iFood:** `acceptCancellation` ou `denyCancellation` com `dados.disputeId` (sem ele, vale a disputa aberta do pedido). Aceitam `Idempotency-Key`. A contraproposta (`counterOffer` ou `CONTRAPROPOSTA`) exige `disputeId`, `alternativeId` (ambos do evento da disputa) e `type` (`REFUND` ou `ADDITIONAL_TIME`); sem algum deles, `400 CONTRAPROPOSTA_INCOMPLETA`:
 
 ```json
 { "acao": "CONTRAPROPOSTA", "plataforma": "IFOOD",
@@ -363,7 +369,9 @@ Formato: `{ "erro": "...", "codigo": "...", "detalhes": {}, "requestId": "..." }
 | `401 TOKEN_INVALIDO` | Token ausente, errado, revogado ou do tipo errado para a rota |
 | `400 REQUISICAO_INVALIDA` | Campo inválido (`detalhes.campo`) |
 | `400 PRODUTO_INVALIDO` | Produto inválido (`detalhes.indice` e `detalhes.campo`) |
-| `400 PLATAFORMA_HTTP_<n>` / `PLATAFORMA_ERRNO_<n>` | Recusa do iFood ou da 99Food (resposta em `detalhes`) |
+| `400 PLATAFORMA_HTTP_<4xx>` / `PLATAFORMA_ERRNO_<n>` | Recusa do iFood ou da 99Food (resposta em `detalhes`) |
+| `422 CODIGO_INVALIDO` | Código de coleta ou entrega recusado |
+| `502 PLATAFORMA_HTTP_<5xx>` | Falha da plataforma; pode repetir |
 | `409 PEDIDO_OU_LOJA_NAO_E_SEU` | Pedido ou loja de fora da conexão |
 | `413 CORPO_GRANDE_DEMAIS` | Corpo acima de 1 MB |
 | `429 LIMITE_DA_INSTALACAO` / `MUITAS_TENTATIVAS` | Limite de chamadas; respeite `Retry-After` |
