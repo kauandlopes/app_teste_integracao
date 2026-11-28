@@ -3645,6 +3645,94 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Conexao (ERP)"
+        ],
+        "operationId": "excluirCategoriaConexao",
+        "summary": "Exclui categoria SEM produtos, nas duas plataformas ou na informada",
+        "security": [
+          {
+            "conexao": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "nome",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "plataforma",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "IFOOD",
+                "99FOOD"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ok, nome, plataformas{IFOOD, 99FOOD}{estado EXCLUIDA|PROCESSANDO|NAO_EXISTE|COM_PRODUTOS|SEM_LOJA|ERRO, produtos?, erro?}, avisos[]}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "TOKEN_INVALIDO",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "LOJA_NAO_ENCONTRADA: nenhuma loja ativa na conexao",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Com ?plataforma: CATEGORIA_COM_PRODUTOS ou CATEGORIA_UNICA_99; CARDAPIO_99_OCUPADO com Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "HUB_DESLIGADO ou HUB_INDISPONIVEL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/hub/v1/conexao/catalogo/categorias/{categoriaId}": {

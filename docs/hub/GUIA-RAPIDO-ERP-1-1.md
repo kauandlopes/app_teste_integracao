@@ -364,3 +364,7 @@ Formato: `{ "erro": "...", "codigo": "...", "detalhes": {}, "requestId": "..." }
 | `503 HUB_DESLIGADO` / `HUB_INDISPONIVEL` | Hub indisponível |
 
 Envie um `User-Agent` próprio. A proteção de borda (Cloudflare) pode responder `403` com `error code: 1010` a alguns User-Agents padrão de bibliotecas; essa resposta não segue o formato acima.
+
+## Excluir categoria
+
+`DELETE /hub/v1/conexao/catalogo/categorias?nome=Bebidas` exclui nas duas plataformas (ou use `&plataforma=IFOOD`). Só exclui categoria sem produtos: com produtos, o estado volta `COM_PRODUTOS`. A 99Food não aceita cardápio sem nenhuma categoria.
