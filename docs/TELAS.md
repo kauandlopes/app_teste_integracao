@@ -56,7 +56,8 @@ Sistema de exemplo para desenvolvimento e testes. As telas mostram o necessário
 - Acréscimo de sabor diferente por tamanho publica um item para cada tamanho.
 - Combo: preço no produto, um grupo por etapa e a primeira etapa é a principal.
 - Foto: JPEG ou PNG, mínimo 150 x 150, até 5 MB. A 99Food analisa antes de exibir e pode recusar montagem, colagem ou borda.
-- Reenviar é o caminho quando o item foi apagado direto no painel da plataforma. A 99Food não aceita cardápio vazio: o último item fica pausado.
+- Reenviar é o caminho quando o item foi apagado direto no painel da plataforma. Com exclusão em andamento, reenviar repete a exclusão. A 99Food não aceita cardápio vazio: o último item fica pausado.
+- Preço zero só é aceito quando um grupo obrigatório tem preço em todas as opções, inclusive em combo.
 
 **Avisos que ficam na tela**
 
@@ -71,6 +72,7 @@ Sistema de exemplo para desenvolvimento e testes. As telas mostram o necessário
 - Uma loja ativa por plataforma. A lista mostra as lojas autorizadas no aplicativo da Target e ainda sem dono. O primeiro vínculo da 99Food pode levar cerca de 30 segundos.
 - Gerar novo token invalida o anterior na hora.
 - Conexão encerrada (401): o ERP para pedidos e cardápio até conectar de novo.
+- Desvínculo no portal da 99Food chega pelo evento shopBindStatus e gera um alerta. O estado da loja no Hub pode continuar ATIVA: confira antes de publicar.
 - Entregas do Hub mostra a fila PUSH; reativar e reprocessar reenvia o que o Hub desistiu de entregar.
 
 **Avisos que ficam na tela**

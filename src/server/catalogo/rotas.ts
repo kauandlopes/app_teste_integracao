@@ -94,8 +94,11 @@ export function rotasCatalogo(): Router {
   });
 
   api.post('/produtos/:codigo/reenviar', (req, res) => {
-    if (!obterProduto(req.params.codigo)) return res.status(404).json({ erro: 'Produto não encontrado.' });
-    enfileirar(req.params.codigo, 'PUBLICAR');
+    const linha = db.prepare('SELECT removendo FROM produtos WHERE codigo = ?').get(req.params.codigo) as { removendo: number } | undefined;
+    if (!linha) return res.status(404).json({ erro: 'Produto não encontrado.' });
+    // Com exclusao em andamento (ou que falhou), reenviar repete a exclusao: publicar desfaria o pedido do operador.
+    // Para voltar a vender um produto nesse estado, salve-o de novo pelo cadastro.
+    enfileirar(req.params.codigo, linha.removendo ? 'REMOVER' : 'PUBLICAR');
     res.status(202).json({ ok: true });
   });
 

@@ -149,7 +149,8 @@ export function normalizarProduto(entrada: any): ProdutoErp {
   const valor = preco(entrada?.preco, titulo);
   if (tipo === 'COMBO' && !listaGrupos.length) falha('Combo: cadastre pelo menos uma etapa (grupo) com opções.');
   const precoNoAdicional = listaGrupos.some((g) => g.min > 0 && g.opcoes.every((o) => o.preco > 0));
-  if (valor === 0 && tipo !== 'COMBO' && !precoNoAdicional) falha('Preço zero só vale quando um grupo obrigatório tem preço em todas as opções.');
+  // Vale tambem para combo: sem preco no produto nem em etapa obrigatoria ele sairia de graca nas plataformas
+  if (valor === 0 && !precoNoAdicional) falha('Preço zero só vale quando um grupo obrigatório tem preço em todas as opções.');
   return { ...base, preco: valor, ...porPlataforma(entrada?.precosPlataforma, titulo), pizza: null };
 }
 

@@ -276,3 +276,17 @@ test('preco com tres casas, texto ou numero invalido sao recusados com a mensage
   assert.equal((await a.erp('PATCH', '/catalogo/plataformas/itens', { plataforma: 'IFOOD', itemId: 'B', preco: 10.999 })).status, 400);
   assert.equal(a.chamadasDe('PATCH', /itens\/preco/).length, 0);
 });
+
+test('reenviar com exclusao em andamento repete a exclusao e nao republica', async () => {
+  publicado();
+  const { produto } = (await a.erp('PUT', '/catalogo/produtos', lanche)).json;
+  await esperar();
+  a.quando('DELETE', /\/catalogo\/produtos\//, () => ({ status: 500, json: { erro: 'falha' } }));
+  await a.erp('DELETE', `/catalogo/produtos/${produto.codigo}`);
+  await esperar();
+  const envios = a.chamadasDe('POST', /catalogo\/produtos$/).length;
+  assert.equal((await a.erp('POST', `/catalogo/produtos/${produto.codigo}/reenviar`)).status, 202);
+  await esperar();
+  assert.equal(a.chamadasDe('POST', /catalogo\/produtos$/).length, envios);
+  assert.ok(a.chamadasDe('DELETE', /\/catalogo\/produtos\//).length >= 2);
+});

@@ -84,7 +84,15 @@ export function receberEvento(ev: EventoRecebido): boolean {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(ev.id, conexaoId, ev.seq, ev.origem, ev.plataforma, ev.pedidoId, ev.tipo, ev.corpo, ocorridoEm, agora, semPedido ? 'PROCESSADO' : 'PENDENTE');
+  if (r.changes > 0 && ev.tipo === 'shopBindStatus') avisarDesvinculo(ev.corpo);
   return r.changes > 0;
+}
+
+/** 99Food: o portal desvinculou a loja. O evento nao tem pedido, entao o operador e avisado na hora. */
+function avisarDesvinculo(corpo: string) {
+  if (lerJson<any>(corpo)?.data?.bindStatus !== 'unbind') return;
+  notificar('pedidos', { aviso: '99Food: a loja foi desvinculada. Confira em "Lojas e operação".', nivel: 'alerta' });
+  void atualizarEstadoConexao().then(() => notificar('conexao', {}));
 }
 
 // ── Processamento ────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import test from 'node:test';
 import { docExemplos, docTelas } from '../scripts/gerar-docs.js';
+import { normalizarProduto } from '../src/server/catalogo/produto.js';
 import { assinaturaValida, conferirValores, desfecho, lerJsonSemArredondar } from '../src/shared/exemplos/integracao-minima.js';
 import ifood from '../src/shared/exemplos/pedido-ifood.json' with { type: 'json' };
 import noventaENove from '../src/shared/exemplos/pedido-99food.json' with { type: 'json' };
@@ -34,4 +35,10 @@ test('documentos gerados estao em dia e sem segredo', () => {
   assert.equal(ler('../docs/TELAS.md'), docTelas(), 'rode npm run docs');
   assert.equal(ler('../docs/EXEMPLOS-PEDIDOS-REAIS.md'), docExemplos(), 'rode npm run docs');
   assert.doesNotMatch(docExemplos(), /hub[ipt]_[A-Za-z0-9]{8,}/);
+});
+
+test('combo sem preco no produto nem nas etapas e recusado; com preco nas opcoes obrigatorias vale', () => {
+  const combo = (preco: number) => ({ codigo: 'C', nome: 'Combo', categoria: 'Combos', tipo: 'COMBO', preco: 0, grupos: [{ nome: 'Lanche', min: 1, max: 1, opcoes: [{ nome: 'X', preco }] }] });
+  assert.throws(() => normalizarProduto(combo(0)), /Preço zero/);
+  assert.equal(normalizarProduto(combo(12)).preco, 0);
 });
