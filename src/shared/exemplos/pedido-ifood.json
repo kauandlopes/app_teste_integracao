@@ -1,0 +1,765 @@
+{
+  "origem": "Pedido real de teste de 28/11/2026 (iFood, loja de teste). Dados pessoais, codigos e assinatura substituidos.",
+  "pedidoId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+  "plataforma": "IFOOD",
+  "passos": [
+    {
+      "em": "2026-11-28T11:41:41.037Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "IFOOD",
+        "x-target-loja": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "x-target-evento": "65de8e61-50bd-4c7d-aa84-f491630fe9b2",
+        "x-target-tipo": "PLACED",
+        "x-target-pedido": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "x-target-seq": "25",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795866100",
+        "x-target-notificacao": "e9aaceb9-41b4-4485-b1ff-782b9c34135c",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "code": "PLC",
+        "createdAt": "2026-11-28T11:41:39.702Z",
+        "fullCode": "PLACED",
+        "id": "65de8e61-50bd-4c7d-aa84-f491630fe9b2",
+        "merchantId": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "orderId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "salesChannel": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 11
+    },
+    {
+      "em": "2026-11-28T11:41:41.290Z",
+      "tipo": "consulta",
+      "rota": "GET /hub/v1/conexao/pedidos/{pedidoId}?formato=unificado",
+      "resposta": {
+        "status": 200,
+        "corpo": "ver detalheUnificado"
+      },
+      "ms": 241
+    },
+    {
+      "em": "2026-11-28T11:42:19.723Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "confirm",
+        "plataforma": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "ok": true,
+          "status": 202
+        }
+      },
+      "ms": 195
+    },
+    {
+      "em": "2026-11-28T11:42:20.022Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "IFOOD",
+        "x-target-loja": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "x-target-evento": "aab04448-84cb-4423-885b-e95604378c32",
+        "x-target-tipo": "CONFIRMED",
+        "x-target-pedido": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "x-target-seq": "26",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795866140",
+        "x-target-notificacao": "eb01bae9-ef70-4043-85ab-a99fa07074e9",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "code": "CFM",
+        "createdAt": "2026-11-28T11:42:19.64Z",
+        "fullCode": "CONFIRMED",
+        "id": "aab04448-84cb-4423-885b-e95604378c32",
+        "merchantId": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "metadata": {
+          "CLIENT_ID": "integrador:exemplo",
+          "ORIGIN": "ORDER_API",
+          "appName": "exemplo",
+          "ownerName": "exemplo"
+        },
+        "orderId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "salesChannel": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 1
+    },
+    {
+      "em": "2026-11-28T11:42:20.637Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "IFOOD",
+        "x-target-loja": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "x-target-evento": "1a022fa8-3c35-4019-9bc9-c51c0d4301f0",
+        "x-target-tipo": "DELIVERY_DROP_CODE_REQUESTED",
+        "x-target-pedido": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "x-target-seq": "27",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795866140",
+        "x-target-notificacao": "2b889858-cc6f-4fde-8943-15156aad2c80",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "code": "DDCR",
+        "createdAt": "2026-11-28T11:42:20.06Z",
+        "fullCode": "DELIVERY_DROP_CODE_REQUESTED",
+        "id": "1a022fa8-3c35-4019-9bc9-c51c0d4301f0",
+        "merchantId": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "orderId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "salesChannel": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 2
+    },
+    {
+      "em": "2026-11-28T11:42:24.798Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "readyToPickup",
+        "plataforma": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "ok": true,
+          "status": 202
+        }
+      },
+      "ms": 193
+    },
+    {
+      "em": "2026-11-28T11:42:25.024Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "IFOOD",
+        "x-target-loja": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "x-target-evento": "411b304a-ebc7-432a-aad9-32b97dafa7c7",
+        "x-target-tipo": "READY_TO_PICKUP",
+        "x-target-pedido": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "x-target-seq": "28",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795866145",
+        "x-target-notificacao": "caed54f5-ecd7-480e-8784-52c318a93be4",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "code": "RTP",
+        "createdAt": "2026-11-28T11:42:24.705Z",
+        "fullCode": "READY_TO_PICKUP",
+        "id": "411b304a-ebc7-432a-aad9-32b97dafa7c7",
+        "merchantId": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "metadata": {
+          "CLIENT_ID": "integrador:exemplo",
+          "ORIGIN": "ORDER_API",
+          "appName": "exemplo",
+          "ownerName": "exemplo"
+        },
+        "orderId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "salesChannel": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 1
+    },
+    {
+      "em": "2026-11-28T11:42:36.678Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "dispatch",
+        "plataforma": "IFOOD",
+        "dados": {
+          "courierName": "Entregador Exemplo",
+          "courierPhone": "11900000001"
+        }
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "ok": true,
+          "status": 202
+        }
+      },
+      "ms": 190
+    },
+    {
+      "em": "2026-11-28T11:42:36.890Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "IFOOD",
+        "x-target-loja": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "x-target-evento": "0d628cee-ca98-493a-8f84-4e510f588cd4",
+        "x-target-tipo": "DISPATCHED",
+        "x-target-pedido": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "x-target-seq": "29",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795866156",
+        "x-target-notificacao": "e965ad85-ca1f-4f64-820f-ed09cce1e260",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "code": "DSP",
+        "createdAt": "2026-11-28T11:42:36.585Z",
+        "fullCode": "DISPATCHED",
+        "id": "0d628cee-ca98-493a-8f84-4e510f588cd4",
+        "merchantId": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "metadata": {
+          "CLIENT_ID": "integrador:exemplo",
+          "ORIGIN": "ORDER_API",
+          "appName": "exemplo",
+          "ownerName": "exemplo"
+        },
+        "orderId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "salesChannel": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 2
+    },
+    {
+      "em": "2026-11-28T11:42:38.407Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "conclude",
+        "plataforma": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "ok": true,
+          "status": "CONCLUDED",
+          "localOnly": true
+        }
+      },
+      "ms": 9
+    },
+    {
+      "em": "2026-11-28T12:12:22.102Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "IFOOD",
+        "x-target-loja": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "x-target-evento": "330bab9b-1688-4fed-bfb4-8be3b4dcd954",
+        "x-target-tipo": "CONCLUDED",
+        "x-target-pedido": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "x-target-seq": "32",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795867942",
+        "x-target-notificacao": "d41133d1-2b11-416a-9fc0-c6e91cffd8dc",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "code": "CON",
+        "createdAt": "2026-11-28T12:12:21.149Z",
+        "fullCode": "CONCLUDED",
+        "id": "330bab9b-1688-4fed-bfb4-8be3b4dcd954",
+        "merchantId": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "metadata": {
+          "triggerEvent": {
+            "id": "bfdb21ba-03b0-4178-af15-34518c6842d3",
+            "previousStatus": "DISPATCHED",
+            "value": "CONCLUDED"
+          }
+        },
+        "orderId": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+        "salesChannel": "IFOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 2
+    }
+  ],
+  "detalheUnificado": {
+    "id": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+    "codigoExibicao": "5550",
+    "canal": "IFOOD",
+    "statusKanban": "NOVO",
+    "etapaOriginal": "RECEBIDO",
+    "tipoEntrega": "DELIVERY",
+    "modalidadePlataforma": "DELIVERY",
+    "categoriaPlataforma": "FOOD",
+    "entreguePor": "MERCHANT",
+    "cliente": {
+      "nome": "Cliente Exemplo",
+      "telefone": "0800 000 0000",
+      "documento": "00000000000",
+      "telefoneVirtual": "0800 000 0000",
+      "localizador": "00000000"
+    },
+    "enderecoEntrega": {
+      "formatado": "Rua Exemplo, 100",
+      "logradouro": "Rua Exemplo",
+      "numero": "100",
+      "complemento": "",
+      "bairro": "Centro",
+      "cidade": "Cidade",
+      "uf": "UF",
+      "cep": "00000000",
+      "referencia": "Referencia"
+    },
+    "valores": {
+      "moeda": "BRL",
+      "subtotal": 21,
+      "taxaEntrega": 5,
+      "total": 27,
+      "trocoPara": null
+    },
+    "pagamento": {
+      "forma": "CREDIT",
+      "pagoOnline": true
+    },
+    "itens": [
+      {
+        "id": "5cad4023-59b7-43c1-9f54-ee7d341b931d",
+        "nome": "PRODUTO 1 - NÃO ENTREGAR - Primeiro Nível",
+        "quantidade": 1,
+        "precoUnitario": 5,
+        "precoTotal": 5,
+        "observacao": "",
+        "codigoExterno": "9874",
+        "modificadores": []
+      },
+      {
+        "id": "ac155690-3458-49c2-880c-9045bcb4143b",
+        "nome": "PRODUTO 2 (COMBO) - NÃO ENTREGAR - Primeiro Nível",
+        "quantidade": 1,
+        "precoUnitario": 16,
+        "precoTotal": 16,
+        "observacao": "",
+        "codigoExterno": "8641",
+        "modificadores": [
+          {
+            "nome": "Complemento 1 - Segundo Nível",
+            "quantidade": 1,
+            "precoUnitario": 2,
+            "codigoExterno": "8230",
+            "idExterno": "459826e9-afe8-4d5f-9e40-2ce77f3ec20e"
+          },
+          {
+            "nome": "Complemento 2 - Segundo Nível",
+            "quantidade": 1,
+            "precoUnitario": 2,
+            "codigoExterno": "7612",
+            "idExterno": "c0aff13b-823b-4e71-a444-ebed87263a91"
+          },
+          {
+            "nome": "Complemento 3 - Segundo Nível",
+            "quantidade": 1,
+            "precoUnitario": 2,
+            "codigoExterno": "2984",
+            "idExterno": "8f919585-f599-4eb4-8f92-5375b73131ae"
+          },
+          {
+            "nome": "Complemento 4 - Segundo Nível",
+            "quantidade": 1,
+            "precoUnitario": 2,
+            "codigoExterno": "9110",
+            "idExterno": "87f56b3f-ecaa-4ded-b1d8-bce525c10e1e"
+          },
+          {
+            "nome": "Complemento 4 - Segundo Nível > Customização 1 do Complemento 4 - Terceiro Nível",
+            "quantidade": 1,
+            "precoUnitario": 1,
+            "codigoExterno": "1043",
+            "idExterno": "4b740390-7b7f-49a7-96cb-83994a475832"
+          },
+          {
+            "nome": "Complemento 4 - Segundo Nível > Customização 2 do Complemento 4 - Terceiro Nível",
+            "quantidade": 1,
+            "precoUnitario": 1,
+            "codigoExterno": "3722",
+            "idExterno": "ea54e7fb-77e1-46a2-8a59-00dff519c51a"
+          },
+          {
+            "nome": "Complemento 4 - Segundo Nível > Customização 3 do Complemento 4 - Terceiro Nível",
+            "quantidade": 1,
+            "precoUnitario": 1,
+            "codigoExterno": "4538",
+            "idExterno": "6c636e30-da94-4d11-9591-4e8419423908"
+          }
+        ]
+      }
+    ],
+    "observacoes": "Este pedido foi gerado automaticamente pelo Developer Portal.",
+    "acoesPermitidas": [
+      "confirm",
+      "requestCancellation"
+    ],
+    "agendamento": {
+      "agendado": false,
+      "previsaoEntrega": "2026-11-28T12:26:39.193Z",
+      "inicioPreparo": "2026-11-28T11:41:39.193Z"
+    },
+    "codigos": {
+      "retirada": null,
+      "coleta": "0000",
+      "entrega": null
+    },
+    "pagamentos": [
+      {
+        "forma": "CREDIT",
+        "bandeira": "Visa",
+        "valor": 17,
+        "pagoOnline": true
+      },
+      {
+        "forma": "CREDIT",
+        "bandeira": "Master",
+        "valor": 10,
+        "pagoOnline": true
+      }
+    ],
+    "ajustes": {
+      "descontoPlataforma": 0,
+      "descontoLoja": 0,
+      "taxaServico": 1,
+      "gorjeta": 0,
+      "dinheiroAReceber": null,
+      "repasseLoja": null
+    },
+    "pedidoTeste": true,
+    "criadoEm": "2026-11-28T11:41:39.193Z",
+    "bruto": {
+      "id": "3ad5038e-4f31-4399-b2df-2fd5850127ac",
+      "displayId": "5550",
+      "createdAt": "2026-11-28T11:41:39.193Z",
+      "category": "FOOD",
+      "orderTiming": "IMMEDIATE",
+      "orderType": "DELIVERY",
+      "delivery": {
+        "mode": "DEFAULT",
+        "description": "Padrão",
+        "deliveredBy": "MERCHANT",
+        "deliveryDateTime": "2026-11-28T12:26:39.193Z",
+        "observations": "Este pedido foi gerado automaticamente pelo Developer Portal.",
+        "deliveryAddress": {
+          "streetName": "Rua Exemplo",
+          "streetNumber": "100",
+          "formattedAddress": "Rua Exemplo, 100",
+          "neighborhood": "Centro",
+          "complement": "",
+          "postalCode": "00000000",
+          "city": "Cidade",
+          "state": "UF",
+          "country": "XX",
+          "reference": "Referencia",
+          "coordinates": {
+            "latitude": 0,
+            "longitude": 0
+          }
+        },
+        "pickupCode": "0000"
+      },
+      "preparationStartDateTime": "2026-11-28T11:41:39.193Z",
+      "isTest": true,
+      "salesChannel": "IFOOD",
+      "merchant": {
+        "id": "535493c1-17ea-40ed-aec5-f6b3d3d5aede",
+        "name": "Teste - Target Client",
+        "business": {
+          "name": "IFOOD_MARKETPLACE"
+        }
+      },
+      "customer": {
+        "id": "00000000-0000-0000-0000-000000000000",
+        "name": "Cliente Exemplo",
+        "documentNumber": "00000000000",
+        "documentType": "idEstrangeiro",
+        "phone": {
+          "number": "0800 000 0000",
+          "localizer": "00000000",
+          "localizerExpiration": "2026-11-28T15:41:39.193Z"
+        },
+        "ordersCountOnMerchant": 0,
+        "segmentation": "Cliente"
+      },
+      "items": [
+        {
+          "index": 1,
+          "id": "5cad4023-59b7-43c1-9f54-ee7d341b931d",
+          "uniqueId": "9d020cb1-a7d7-461f-a6a9-0872fb859752",
+          "name": "PRODUTO 1 - NÃO ENTREGAR - Primeiro Nível",
+          "externalCode": "9874",
+          "ean": "",
+          "quantity": 1,
+          "unit": "UN",
+          "unitPrice": 5,
+          "optionsPrice": 0,
+          "customizationPrice": 0,
+          "totalPrice": 5,
+          "price": 5,
+          "observations": "",
+          "options": [],
+          "imageUrl": "https://static-images.ifood.com.br/image/upload/t_high/pratos/e078d2e1-0af0-49c3-ba0d-ea4effffbd54/202305121137_XIHJ_i.jpg"
+        },
+        {
+          "index": 2,
+          "id": "ac155690-3458-49c2-880c-9045bcb4143b",
+          "uniqueId": "d5dc2940-f192-40c2-82e9-2dbc507911a1",
+          "name": "PRODUTO 2 (COMBO) - NÃO ENTREGAR - Primeiro Nível",
+          "type": "COMBO_V2",
+          "externalCode": "8641",
+          "ean": "",
+          "quantity": 1,
+          "unit": "UN",
+          "unitPrice": 5,
+          "optionsPrice": 8,
+          "customizationPrice": 3,
+          "totalPrice": 16,
+          "price": 5,
+          "observations": "",
+          "options": [
+            {
+              "index": 3,
+              "id": "459826e9-afe8-4d5f-9e40-2ce77f3ec20e",
+              "name": "Complemento 1 - Segundo Nível",
+              "type": "SPECIFICATION",
+              "groupName": "Adicione mais ingredientes",
+              "externalCode": "8230",
+              "ean": "",
+              "quantity": 1,
+              "unit": "UN",
+              "unitPrice": 2,
+              "addition": 0,
+              "price": 2
+            },
+            {
+              "index": 4,
+              "id": "c0aff13b-823b-4e71-a444-ebed87263a91",
+              "name": "Complemento 2 - Segundo Nível",
+              "type": "OFFER_UNIT",
+              "groupName": "Deseja adicionar molhos?",
+              "externalCode": "7612",
+              "ean": "",
+              "quantity": 1,
+              "unit": "UN",
+              "unitPrice": 2,
+              "addition": 0,
+              "price": 2
+            },
+            {
+              "index": 5,
+              "id": "8f919585-f599-4eb4-8f92-5375b73131ae",
+              "name": "Complemento 3 - Segundo Nível",
+              "type": "OFFER_UNIT",
+              "groupName": "Escolha seu acompanhamento",
+              "externalCode": "2984",
+              "ean": "",
+              "quantity": 1,
+              "unit": "UN",
+              "unitPrice": 2,
+              "addition": 0,
+              "price": 2
+            },
+            {
+              "index": 6,
+              "id": "87f56b3f-ecaa-4ded-b1d8-bce525c10e1e",
+              "name": "Complemento 4 - Segundo Nível",
+              "type": "MAIN",
+              "groupName": "Meu sanduíche favorito",
+              "customizations": [
+                {
+                  "id": "4b740390-7b7f-49a7-96cb-83994a475832",
+                  "externalCode": "1043",
+                  "name": "Customização 1 do Complemento 4 - Terceiro Nível",
+                  "groupName": "Grupo de Complemento Obrigatório",
+                  "type": "SPECIFICATION",
+                  "quantity": 1,
+                  "unitPrice": 1,
+                  "addition": 0,
+                  "price": 1
+                },
+                {
+                  "id": "ea54e7fb-77e1-46a2-8a59-00dff519c51a",
+                  "externalCode": "3722",
+                  "name": "Customização 2 do Complemento 4 - Terceiro Nível",
+                  "groupName": "Grupo de Complemento Opcional",
+                  "type": "SPECIFICATION",
+                  "quantity": 1,
+                  "unitPrice": 1,
+                  "addition": 0,
+                  "price": 1
+                },
+                {
+                  "id": "6c636e30-da94-4d11-9591-4e8419423908",
+                  "externalCode": "4538",
+                  "name": "Customização 3 do Complemento 4 - Terceiro Nível",
+                  "groupName": "Escolha seu acompanhamento",
+                  "type": "SPECIFICATION",
+                  "quantity": 1,
+                  "unitPrice": 1,
+                  "addition": 0,
+                  "price": 1
+                }
+              ],
+              "externalCode": "9110",
+              "ean": "",
+              "quantity": 1,
+              "unit": "UN",
+              "unitPrice": 2,
+              "addition": 0,
+              "price": 2
+            }
+          ],
+          "imageUrl": "https://static-images.ifood.com.br/image/upload/t_high/pratos/e078d2e1-0af0-49c3-ba0d-ea4effffbd54/202305121137_XIHJ_i.jpg"
+        }
+      ],
+      "total": {
+        "additionalFees": 1,
+        "subTotal": 21,
+        "deliveryFee": 5,
+        "benefits": 0,
+        "orderAmount": 27
+      },
+      "payments": {
+        "prepaid": 27,
+        "pending": 0,
+        "methods": [
+          {
+            "value": 17,
+            "currency": "BRL",
+            "method": "CREDIT",
+            "prepaid": true,
+            "type": "ONLINE",
+            "transaction": {
+              "authorizationCode": "0000000",
+              "acquirerDocument": "00000000000000"
+            },
+            "card": {
+              "brand": "Visa"
+            }
+          },
+          {
+            "value": 10,
+            "currency": "BRL",
+            "method": "CREDIT",
+            "prepaid": true,
+            "type": "ONLINE",
+            "transaction": {
+              "authorizationCode": "0000000",
+              "acquirerDocument": "00000000000000"
+            },
+            "card": {
+              "brand": "Master"
+            }
+          }
+        ]
+      },
+      "additionalFees": [
+        {
+          "type": "SMALL_ORDER_FEE_35_PROMOTIONS",
+          "description": "Taxa de Serviço",
+          "fullDescription": "Cobramos uma taxa que nos ajuda a cobrir custos operacionais, inclusive de segurança, e a manter os investimentos contínuos na plataforma.",
+          "value": 1,
+          "liabilities": [
+            {
+              "name": "IFOOD",
+              "percentage": 100
+            }
+          ]
+        }
+      ],
+      "picking": {
+        "picker": "DEFAULT"
+      },
+      "additionalInfo": {
+        "metadata": {
+          "developerId": "00000000-0000-0000-0000-000000000000",
+          "customerEmail": "cliente@exemplo.com",
+          "developerEmail": "dev@exemplo.com"
+        }
+      }
+    }
+  }
+}

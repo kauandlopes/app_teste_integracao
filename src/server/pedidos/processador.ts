@@ -58,6 +58,10 @@ function dataDoCorpo(corpo: any): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+/**
+ * Passo 1. So grava: quem chama pode responder 200 ao Hub (PUSH) ou confirmar o cursor (PULL) logo depois.
+ * Devolve false quando o evento ja existia. Exemplo real da sequencia: src/shared/exemplos/pedido-ifood.json.
+ */
 export function receberEvento(ev: EventoRecebido): boolean {
   const conexaoId = obterConfig().conexaoId;
   const agora = new Date().toISOString();
@@ -342,6 +346,8 @@ export function dadosDaAcao(p: RegistroPedido, acao: string, entrada: Record<str
 }
 
 /** Reflexo da acao aceita pelo Hub. O evento da plataforma confirma em seguida (a etapa nunca regride). */
+// iFood responde 202 (recebido) e confirma por evento. Na 99Food errno 0 ja vale: pronto e saida nao geram webhook
+// nas lojas de teste, e o orderFinish nem sempre chega (ou chega minutos depois). A etapa vem desta resposta.
 function aplicarAcao(p: RegistroPedido, acao: string, dados: Record<string, any>, resposta: unknown) {
   const est = p.estado;
   const pend = est.pendencias;
@@ -621,6 +627,8 @@ interface EventoPull {
 
 let puxando = false;
 
+// PULL: GET /hub/v1/eventos, gravar tudo e so entao POST /hub/v1/eventos/confirmar com o ultimo seq.
+// "lacuna" na resposta significa eventos apagados pela retencao: a reconciliacao cobre.
 export async function puxarEventos(): Promise<number> {
   const cfg = obterConfig();
   if (puxando || !conexaoPronta() || cfg.transporte === 'PUSH') return 0;

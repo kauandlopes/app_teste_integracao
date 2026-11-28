@@ -70,6 +70,10 @@ export interface OpcoesHub {
   silenciarSucesso?: (json: unknown) => boolean;
 }
 
+/**
+ * Toda chamada ao Hub passa aqui. E o lugar do detalhe tecnico: requisicao, resposta, tempo, codigo do erro e cURL
+ * vao para Logs; a tela recebe somente a mensagem para o operador (mensagemDoHub, sem o codigo entre colchetes).
+ */
 export async function hubFetch<T = any>(caminho: string, opcoes: OpcoesHub = {}): Promise<RespostaHub<T>> {
   const cfg = obterConfig();
   const base = (opcoes.baseExplicita ?? cfg.baseUrl).replace(/\/$/, '');

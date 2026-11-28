@@ -170,6 +170,8 @@ function eventoIfood(tipo: string, c: any, ocorridoEm: string): Efeito {
       return e('Área de retirada definida', { recarregar: true });
     case 'DELIVERY_PICKUP_CODE_REQUESTED':
       return e('Código de coleta solicitado', { aviso: alerta('Confira o código de coleta com o entregador.') });
+    // Chega logo apos o CONFIRMED na entrega propria. A partir daqui o codigo do cliente e a forma de concluir:
+    // verifyDeliveryCode com dados.code (nao existe comando de conclusao no iFood).
     case 'DELIVERY_DROP_CODE_REQUESTED':
       return e('Código de entrega solicitado', { codigoEntregaPedido: true, aviso: alerta('A entrega exige o código informado pelo cliente.') });
     default:

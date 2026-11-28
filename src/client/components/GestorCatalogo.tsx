@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AvisoCatalogo, erpApi, EstadoProduto, formatarMoeda, LojaVinculada, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
-import { Contagem, Mudanca, PublicacaoNas99, useConfirmar } from './Comuns';
+import { Contagem, Mudanca, useConfirmar } from './Comuns';
 import { EditorProduto } from './EditorProduto';
 import { IconeAtualizar } from './Icones';
 import { BotaoDisponivel, Plataformas, PrecoEditavel } from './Plataformas';
@@ -102,7 +102,8 @@ export function GestorCatalogo({
     pedir({
       titulo: `Alterar ${rotulo.toLowerCase()} de ${nome}?`,
       confirmar: 'Confirmar e enviar',
-      aviso: 'A mudança vale na loja real. Na 99Food pode levar alguns minutos.',
+      // Na 99Food o efeito depende do envio do cardapio (ate alguns minutos); pausa costuma valer na hora
+      aviso: 'A mudança vale na loja real.',
       conteudo: (
         <>
           <Mudanca rotulo={rotulo} de={de} para={para} />
@@ -124,12 +125,8 @@ export function GestorCatalogo({
       perigo: true,
       conteudo: (
         <>
-          <span>
-            <strong>Excluir do ERP e das plataformas:</strong> apaga o produto aqui, no iFood e na 99Food. Se a 99Food não aceitar apagar, o item fica pausado.
-          </span>
-          <span>
-            <strong>Remover só do ERP:</strong> o produto continua publicado nas plataformas, sem controle por este ERP.
-          </span>
+          {/* "Excluir" apaga nos canais (a 99Food pode apenas pausar o ultimo item); "so do ERP" nao chama o Hub. */}
+          <span>"Remover só do ERP" mantém o produto publicado nas plataformas.</span>
           {ondeVale}
         </>
       ),
@@ -183,8 +180,14 @@ export function GestorCatalogo({
         <Plataformas lojas={lojas} skusDoErp={skus} notificar={notificar} aoAbrirNoErp={abrirNoErp} />
       ) : (
         <>
-          <span className="suave">Todo produto precisa de categoria. Se ela não existir em uma das plataformas, é criada lá ao publicar.</span>
-          <PublicacaoNas99 />
+          {/*
+            Como a publicacao funciona (detalhado na aba Documentacao e em docs/CARDAPIO.md):
+            - salvar, mudar preco ou pausar coloca o produto na fila; o servidor envia ate 4 produtos ao mesmo tempo;
+            - o iFood responde em segundos; a 99Food nao recebe item avulso, o Hub reenvia o cardapio inteiro
+              (por loja: 2 leituras a cada 2 minutos, 1 envio por minuto, 5 fotos a cada 10 segundos);
+            - categoria que nao existe na plataforma e criada na publicacao.
+            A tela mostra apenas o estado por canal; avisos completos do Hub ficam em Logs.
+          */}
           {avisos.map((a) => (
             <div className="banner banner-warn linha" key={a.id}>
               <span style={{ flex: 1, minWidth: 220 }}>{a.texto}</span>
@@ -195,7 +198,7 @@ export function GestorCatalogo({
           ))}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             {!filtrados.length ? (
-              <div className="vazio">Nenhum produto cadastrado. Crie um produto ou uma pizza: cada alteração é enviada ao iFood e à 99Food.</div>
+              <div className="vazio">Nenhum produto cadastrado.</div>
             ) : null}
             {filtrados.map((item) => {
               const p = item.produto;
@@ -259,15 +262,19 @@ export function GestorCatalogo({
                       </button>
                     </div>
                   ) : null}
+                  {/*
+                    Avisos de rotina do Hub (fila, analise de foto) ficam no titulo do selo do canal e em Logs.
+                    Aqui aparece so o que muda a expectativa do operador: item que saiu do ERP mas ficou
+                    pausado na plataforma (a 99Food nao aceita cardapio vazio).
+                  */}
                   {Object.entries(item.canais).flatMap(([c, s]) =>
-                    (s?.avisos ?? [])
-                      // O texto do Hub traz os segundos do momento do envio; a contagem ao lado do canal e a atual
-                      .filter((a) => s.envioEmSegundos === undefined || !a.startsWith('Na fila:'))
-                      .map((a) => (
-                        <div className={s.estado === 'REMOVIDO' ? 'observacao' : 'suave'} key={`${c}${a}`}>
-                          {nomeCanal(c)}: {a}
-                        </div>
-                      )),
+                    s?.estado === 'REMOVIDO'
+                      ? (s.avisos ?? []).map((a) => (
+                          <div className="observacao" key={`${c}${a}`}>
+                            {nomeCanal(c)}: {a}
+                          </div>
+                        ))
+                      : [],
                   )}
 
                   {aberto === p.codigo

@@ -9,6 +9,19 @@ Atualizado em 27/11/2026. App de testes. by: Kauan
 
 ## Regras que valem sempre
 
+| Pedido | Regra |
+|---|---|
+| Conclusão no iFood | Não existe comando: valide o código do cliente (`verifyDeliveryCode`) e espere o evento `CONCLUDED` |
+| Código recusado | `422 CODIGO_INVALIDO`: nada foi validado |
+| Preço dos itens | Já inclui os complementos: não somar de novo |
+| Aceite | iFood 8 minutos, 99Food 5 minutos |
+| Falha 502 | Pode repetir com a mesma `Idempotency-Key` |
+| Cancelamento | Exige motivo da lista (`400 MOTIVO_INVALIDO` traz a lista); pedido cancelado não aceita comandos |
+| Logística do iFood | O aplicativo atual não tem o módulo (`422 SEM_PERMISSAO_LOGISTICA`) |
+| Ainda sem teste ao vivo | Aceite de um código de entrega certo no iFood |
+
+### Cardápio e loja
+
 | Assunto | Regra |
 |---|---|
 | Categoria | Todo produto precisa de categoria. Se faltar em uma plataforma, é criada ao publicar |

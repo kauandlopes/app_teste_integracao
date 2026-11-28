@@ -130,19 +130,16 @@ function CartaoLoja({ titulo, loja, consultando }: { titulo: string; loja?: Loja
         </>
       ) : null}
       {loja?.editaveis ? (
-        <div className="suave secao">
-          <span>Alterável nesta tela: {lista(editaveis.filter((c) => NESTA_TELA.includes(c)))} e funcionamento.</span>
-          {foraDaTela.length ? <span>Permitido pela plataforma, fora desta tela: {lista(foraDaTela)}.</span> : null}
-          {loja.naoEditaveis?.length ? <span>Não permitido por esta integração: {lista(loja.naoEditaveis)}.</span> : null}
-          {loja.observacoes?.length ? (
-            <details>
-              <summary>Observações da plataforma</summary>
-              {loja.observacoes.map((o) => (
-                <p key={o}>{o}</p>
-              ))}
-            </details>
-          ) : null}
-        </div>
+        /* Recolhido: o Hub informa por plataforma o que e editavel (editaveis, naoEditaveis, observacoes) */
+        <details className="suave secao">
+          <summary>O que pode ser alterado</summary>
+          <p>Nesta tela: {lista(editaveis.filter((c) => NESTA_TELA.includes(c)))} e funcionamento.</p>
+          {foraDaTela.length ? <p>Pela API, fora desta tela: {lista(foraDaTela)}.</p> : null}
+          {loja.naoEditaveis?.length ? <p>Não permitido: {lista(loja.naoEditaveis)}.</p> : null}
+          {loja.observacoes?.map((o) => (
+            <p key={o}>{o}</p>
+          ))}
+        </details>
       ) : null}
     </div>
   );
@@ -151,7 +148,8 @@ function CartaoLoja({ titulo, loja, consultando }: { titulo: string; loja?: Loja
 function Resultado({ resultado }: { resultado: ResultadoLoja }) {
   return (
     <div className="pilha" role="status">
-      <span className="suave">Resultado do último envio. Os quadros no alto são da última consulta: use "Consultar de novo" para conferir.</span>
+      {/* Os quadros no alto sao da ultima consulta: a plataforma demora a devolver o valor novo */}
+      <span className="suave">Resultado do último envio</span>
       {Object.entries(resultado.plataformas).map(([plataforma, r]) => {
         // Campos enviados na mesma chamada falham juntos: o motivo aparece uma vez
         const grupos = new Map<string, { nomes: string[]; campo: CampoAlterado }>();
@@ -167,7 +165,8 @@ function Resultado({ resultado }: { resultado: ResultadoLoja }) {
               <strong>{nomeCanal(plataforma)}</strong>
               <span className={`pill ${ESTADOS[r.estado]?.[1] ?? ''}`}>{ESTADOS[r.estado]?.[0] ?? r.estado}</span>
             </div>
-            {r.estado === 'ENVIADO' ? <span>A plataforma aceitou o pedido e aplica em seguida. Consulte de novo em até 2 minutos.</span> : null}
+            {/* ENVIADO (99Food): aceito, aplicado em seguida; a situacao final chega pelo evento shopStatus */}
+            {r.estado === 'ENVIADO' ? <span>Consulte de novo em até 2 minutos.</span> : null}
             {r.motivo ? <span>{r.motivo}</span> : null}
             {r.erro ? <AvisoErro erro={r.erro} /> : null}
             {[...grupos.values()].map(({ nomes, campo }) => (
@@ -718,7 +717,8 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunh
           </label>
           {comHorarios ? (
             <>
-              <p className="suave">Substitui a semana inteira. Fim menor que o início passa da meia-noite; 24:00 é o fim do dia.</p>
+              {/* Fim menor que o inicio passa da meia-noite; 24:00 e o fim do dia (a 99Food recebe 23:59 e divide a faixa) */}
+              <p className="suave">Substitui a semana inteira.</p>
               {fontes.length > 1 ? (
                 <label className="field campo-curto">
                   <span className="field-label">Preencher com os horários de</span>
@@ -782,7 +782,7 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunh
         <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={enviando}>
           Revisar alterações
         </button>
-        <span className="suave">A 99Food aceita 1 alteração de dados e horários por minuto: envie tudo junto.</span>
+        {/* 99Food: 1 alteracao de dados e horarios por minuto (vao juntos). O Hub devolve retryAfterSegundos e o dialogo avisa. */}
         {resultado ? <Resultado resultado={resultado} /> : null}
       </form>
 
@@ -882,7 +882,8 @@ export function DadosLoja({
       <div className="toolbar" style={{ marginBottom: 0 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 16 }}>Dados da loja</h2>
-          <span className="suave">Toda alteração vale na loja real. A 99Food aceita 1 consulta por minuto.</span>
+          {/* 99Food: 1 consulta por minuto e ate 2 minutos para refletir a mudanca; por isso a leitura so roda no clique */}
+          <span className="suave">As alterações valem na loja real.</span>
         </div>
         <button type="button" className="btn btn-sm" disabled={consultando} onClick={() => void consultar()}>
           <IconeAtualizar size={14} /> {consultando ? 'Consultando...' : 'Consultar de novo'}

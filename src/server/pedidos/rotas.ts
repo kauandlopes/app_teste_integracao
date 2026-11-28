@@ -25,6 +25,8 @@ export function rotasPedidos(): Router {
   const api = Router();
 
   /** Receptor PUSH do Hub. Grava e responde na hora; o processamento acontece em seguida. */
+  // Cabecalhos reais de um webhook estao em src/shared/exemplos/. Um ERP de producao tambem recusa timestamp fora
+  // de 300 s, como faz assinaturaValida em src/shared/exemplos/integracao-minima.ts.
   api.post('/webhook', (req: any, res) => {
     const inicio = Date.now();
     const cfg = obterConfig();

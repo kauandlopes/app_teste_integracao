@@ -88,6 +88,8 @@ export function rotasConexao(): Router {
     res.json({ ok: true });
   });
 
+  // POST /hub/v1/integracao/conectar (token hubp_) devolve o token da conexao (hubi_) e, no PUSH, o segredo do
+  // webhook. Repetir para o mesmo CNPJ nao cria outra conexao.
   api.post('/conectar-cnpj', async (req, res) => {
     const cnpj = String(req.body?.cnpj ?? '').replace(/\D/g, '');
     const nome = String(req.body?.nome ?? '').trim() || `Loja ${cnpj}`;

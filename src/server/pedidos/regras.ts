@@ -55,6 +55,8 @@ export function acoesDisponiveis(p: SituacaoPedido): AcaoDisponivel[] {
     }
     if ((daPlataforma && s !== 'NOVO') || (noLocal && s === 'PRONTO')) add('validatePickupCode', 'Validar código de coleta', 'avancada', 'codigo');
     if (propria && s !== 'NOVO') {
+      // As quatro acoes de logistica exigem o modulo de logistica no app do iFood (sem ele: 422 SEM_PERMISSAO_LOGISTICA).
+      // O codigo de entrega vai pelo modulo de pedidos e funciona sem ele.
       add('assignDriver', 'Informar entregador ao iFood', 'avancada', 'logistica');
       add('goingToOrigin', 'Entregador a caminho da loja', 'avancada');
       add('arrivedAtOrigin', 'Entregador chegou na loja', 'avancada');

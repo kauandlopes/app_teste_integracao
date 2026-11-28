@@ -1,5 +1,7 @@
 # Pedidos: do evento à tela (iFood e 99Food)
 
+Exemplos completos com dois pedidos reais: [EXEMPLOS-PEDIDOS-REAIS.md](EXEMPLOS-PEDIDOS-REAIS.md).
+
 Como o ERP de referência recebe, grava e opera pedidos usando o Hub V1. Referência de comportamento: Target Delivery.
 Código: `src/server/pedidos/`.
 
@@ -79,10 +81,14 @@ Fonte única: `regras.ts` (`acoesDisponiveis`). A tela mostra e o servidor aceit
 Outras ações:
 
 - `dispatch` no iFood a partir de "Em preparo" envia `readyToPickup` antes.
-- Logística do iFood na entrega própria: `assignDriver`, `goingToOrigin`, `arrivedAtOrigin`, `arrivedAtDestination`, `verifyDeliveryCode`.
+- Logística do iFood na entrega própria: `assignDriver`, `goingToOrigin`, `arrivedAtOrigin`, `arrivedAtDestination`. Exigem o
+  módulo de logística no aplicativo; sem ele, `422 SEM_PERMISSAO_LOGISTICA`.
+- `verifyDeliveryCode` vai pelo módulo de pedidos. `validatePickupCode` em entrega própria: `422 CODIGO_NAO_SE_APLICA`.
+  A recusa de código errado foi testada ao vivo em 28/11; o aceite de um código certo ainda não.
 - 99Food: `validatePickupCode` (código do cliente) e `adjustItem` (item em falta).
 - Pedidos simulados (`simhub-`) aceitam apenas o subconjunto que o Hub trata.
-- No iFood não há `conclude` em pedido real: o Hub responde `localOnly` sem avisar a plataforma. O pedido sai da etapa no
+- No iFood não há comando de conclusão. `conclude` com `dados.code` confere o código do cliente; sem código o Hub
+  responde `422 CODIGO_ENTREGA_OBRIGATORIO` ou `422 CONCLUSAO_PELO_IFOOD` e nada é concluído. O pedido sai da etapa no
   evento `CONCLUDED`. Resposta `localOnly` ou `implicit` nunca marca o pedido como concluído.
 - Código errado: o iFood responde `200` com `success: false` e o Hub pode responder `422 CODIGO_INVALIDO`. Nos dois casos
   a tela mostra "Código incorreto" e nada muda.

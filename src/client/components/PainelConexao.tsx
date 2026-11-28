@@ -265,9 +265,7 @@ export function PainelConexao({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 16 }}>1. Empresa Vinculada</h2>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Cada token do integrador opera 1 loja (CNPJ) por vez.
-            </span>
+            {/* Um integrador pode ter varios CNPJs, cada um com a sua conexao e token; este exemplo opera um por vez */}
           </div>
           <MenuTresPontos
             titulo="Opções técnicas da conexão"
@@ -305,13 +303,14 @@ export function PainelConexao({
           <div className="field">
             <label className="field-label">Recebimento de pedidos</label>
             <select className="select" value={transporte} onChange={(e) => setTransporte(e.target.value as 'PULL' | 'PUSH')}>
-              <option value="PUSH">PUSH via Webhook Instantâneo (Recomendado)</option>
-              <option value="PULL">PULL automático (Long-poll legado)</option>
+              {/* PUSH: o Hub chama o webhook com HMAC. PULL: o ERP busca em /hub/v1/eventos e confirma o cursor */}
+              <option value="PUSH">PUSH (webhook)</option>
+              <option value="PULL">PULL (consulta)</option>
             </select>
           </div>
           {transporte === 'PUSH' ? (
             <div className="field">
-              <label className="field-label">URL do Webhook receptor (Túnel)</label>
+              <label className="field-label">URL do webhook</label>
               <input className="input" placeholder="https://delivery.targetx.com.br/erp-simulador/api/webhook" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
             </div>
           ) : null}
@@ -344,9 +343,7 @@ export function PainelConexao({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 16 }}>2. Lojas iFood e 99Food</h2>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Conecte manualmente cada canal escolhendo a loja na lista disponível.
-            </span>
+            {/* Uma loja ativa por plataforma. A lista traz as lojas autorizadas no app da Target e ainda sem dono */}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-sm btn-primary" onClick={() => void abrirModalPlataforma('IFOOD')} disabled={!conectada}>
@@ -385,7 +382,8 @@ export function PainelConexao({
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       Status: {l.estado} {l.loja ? `· ID: ${l.loja}` : ''} {l.lojaExterna ? `· ID na 99Food: ${l.lojaExterna}` : ''}
                     </div>
-                    {l.pendencias?.map((p) => (
+                    {/* ASSOCIACAO_PENDENTE so significa "escolha a loja": o botao ao lado basta e o texto fica em Logs */}
+                    {l.pendencias?.filter((p) => p.codigo !== 'ASSOCIACAO_PENDENTE').map((p) => (
                       <div key={p.codigo} style={{ fontSize: 12, color: 'var(--warn)' }}>
                         {p.mensagem}
                       </div>
@@ -571,7 +569,7 @@ export function PainelConexao({
           <div>
             <h2 style={{ margin: 0, fontSize: 16 }}>4. Webhook PUSH & Ferramentas de Homologação</h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Transporte: <strong>{sessao.transporte || 'PUSH'}</strong> · Assinatura HMAC: {sessao.temWebhookSegredo ? 'Ativa' : 'Pendente'} · Fila/logs internos são serviço do Delivery (opcional em testes)
+              Transporte: <strong>{sessao.transporte || 'PUSH'}</strong> · Assinatura HMAC: {sessao.temWebhookSegredo ? 'Ativa' : 'Pendente'}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -608,9 +606,8 @@ export function PainelConexao({
         {mostrarHomologacaoHub ? (
           <div style={{ marginTop: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                Diagnóstico de entregas do Hub (apenas homologação — o ERP de produção confia no seu próprio receptor <code>/webhook</code>).
-              </span>
+              {/* Fila de entregas vista pelo Hub: apoio de homologacao. Um ERP real confia no proprio receptor de webhook */}
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Entregas do Hub</span>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   type="button"

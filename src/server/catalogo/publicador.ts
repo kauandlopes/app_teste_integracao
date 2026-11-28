@@ -259,6 +259,8 @@ function proximaTarefa(ocupados: string[]): Tarefa | undefined {
     .get(Date.now(), ...ocupados) as Tarefa | undefined;
 }
 
+// A 99Food nao publica item avulso: o Hub reenvia o cardapio da loja (1 envio por minuto por loja). Por isso a
+// resposta PROCESSANDO e normal, e o limite de frequencia volta para a fila em vez de virar erro do produto.
 export async function processarCatalogo(): Promise<void> {
   if (rodando || !conexaoPronta()) return;
   rodando = true;

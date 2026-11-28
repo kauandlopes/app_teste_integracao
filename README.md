@@ -12,6 +12,8 @@ Aplicativo independente que mostra como um ERP consome o **Hub Target Delivery**
 
 | Documento | Conteúdo |
 |---|---|
+| [docs/TELAS.md](docs/TELAS.md) | Como funciona cada tela, avisos que ficam nela e erros a tratar |
+| [docs/EXEMPLOS-PEDIDOS-REAIS.md](docs/EXEMPLOS-PEDIDOS-REAIS.md) | Dois pedidos reais (iFood e 99Food) do webhook ao fim, com código |
 | [docs/hub/](docs/hub/) | Guia rápido e OpenAPI do Hub (cópia de 27/11/2026) |
 | [docs/PEDIDOS.md](docs/PEDIDOS.md) | Chegada sem perda, todos os eventos, ações por plataforma, disputas, cancelamento e reembolso |
 | [docs/CARDAPIO.md](docs/CARDAPIO.md) | Produto com adicionais e pizza, fila de publicação, diferenças entre plataformas |
@@ -45,6 +47,7 @@ cd /var/www/app-balanço/erp-simulador
 npm install
 npm run typecheck
 npm test                      # banco temporário e Hub falso
+npm run docs                  # regera docs/TELAS.md e docs/EXEMPLOS-PEDIDOS-REAIS.md
 npm run build                 # gera dist/client
 pm2 restart erp-simulador
 curl http://127.0.0.1:3004/erp-simulador/api/saude
@@ -53,6 +56,9 @@ curl http://127.0.0.1:3004/erp-simulador/api/saude
 Variáveis do processo: `PORT` (padrão 3004) e `DB_PATH` (padrão `data/erp-hub.sqlite`).
 
 ## Cuidados
+
+Sistema de exemplo para **desenvolvimento e testes**. As telas mostram o necessário para operar; a explicação fica
+na aba Documentação e nos comentários do código, e o detalhe técnico, em Logs.
 
 - Este app **não tem login** e mostra tokens: é uma ferramenta de homologação.
 - Publicar produto envia para as **lojas vinculadas** à conexão, e na 99Food reenvia o cardápio inteiro. Confira em

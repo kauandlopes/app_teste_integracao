@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Sessao } from '../api';
-import { PublicacaoNas99 } from './Comuns';
+import { PedidosReais } from './PedidosReais';
+import { PublicacaoNas99 } from './PublicacaoNas99';
+import { Telas } from './DocumentacaoTelas';
 
 export function PainelDocumentacao({
   sessao,
@@ -9,7 +11,7 @@ export function PainelDocumentacao({
   sessao: Sessao;
   notificar: (tipo: 'ok' | 'erro', msg: string) => void;
 }) {
-  const [subAba, setSubAba] = useState<'webhook' | 'pedidos' | 'cardapio' | 'generica' | 'variaveis'>('webhook');
+  const [subAba, setSubAba] = useState<'telas' | 'reais' | 'webhook' | 'pedidos' | 'cardapio' | 'generica' | 'variaveis'>('telas');
 
   const baseUrl = sessao.baseUrl || 'https://delivery.targetx.com.br/api/v1';
   const rotaWebhookAppTeste = 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
@@ -35,6 +37,12 @@ export function PainelDocumentacao({
             </p>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" className={`btn btn-sm${subAba === 'telas' ? ' btn-primary' : ''}`} onClick={() => setSubAba('telas')}>
+              Como funciona cada tela
+            </button>
+            <button type="button" className={`btn btn-sm${subAba === 'reais' ? ' btn-primary' : ''}`} onClick={() => setSubAba('reais')}>
+              Dois pedidos reais
+            </button>
             <button
               type="button"
               className={`btn btn-sm${subAba === 'webhook' ? ' btn-primary' : ''}`}
@@ -73,6 +81,9 @@ export function PainelDocumentacao({
           </div>
         </div>
       </div>
+
+      {subAba === 'telas' ? <Telas /> : null}
+      {subAba === 'reais' ? <PedidosReais copiar={copiar} /> : null}
 
       {subAba === 'webhook' ? (
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -123,6 +134,11 @@ export function PainelDocumentacao({
                   <td><code>X-Target-Notificacao</code></td>
                   <td><code>c079afaf-2c4a-...</code></td>
                   <td>UUID único da entrega PUSH. Salve para deduplicar caso o Hub reenvie em falha de rede.</td>
+                </tr>
+                <tr>
+                  <td><code>X-Target-Evento</code></td>
+                  <td><code>65de8e61-50bd-...</code></td>
+                  <td>Id do evento. Deduplique por plataforma + evento: a notificação muda quando o transporte é trocado.</td>
                 </tr>
                 <tr>
                   <td><code>X-Target-Plataforma</code></td>
@@ -235,7 +251,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
             <tbody>
               <tr>
                 <td>Entrega própria</td>
-                <td><code>confirm, startPreparation, readyToPickup, dispatch, conclude, updateCourier</code></td>
+                <td><code>confirm, startPreparation, readyToPickup, dispatch, verifyDeliveryCode, updateCourier (só no ERP)</code></td>
                 <td><code>confirm, readyToPickup, dispatch (com entregador), conclude, updateCourier</code></td>
               </tr>
               <tr>
@@ -245,7 +261,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
               </tr>
               <tr>
                 <td>Retirada ou mesa</td>
-                <td><code>confirm, startPreparation, readyToPickup, conclude</code></td>
+                <td><code>confirm, startPreparation, readyToPickup, validatePickupCode</code> (a conclusão vem do evento)</td>
                 <td><code>confirm, readyToPickup, pickedUp</code></td>
               </tr>
               <tr>
@@ -343,7 +359,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
                   <td><code>POST /hub/v1/conexao/pedidos/:id/acao</code></td>
                   <td>
                     Aceita <code>confirm</code>, <code>startPreparation</code>, <code>readyToPickup</code>, <code>dispatch</code> (c/ entregador), <code>updateCourier</code>,{' '}
-                    <code>validatePickupCode</code>, <code>conclude</code>, <code>requestCancellation</code>, <code>acceptCancellation</code>, <code>denyCancellation</code>.
+                    <code>validatePickupCode</code>, <code>verifyDeliveryCode</code>, <code>conclude</code> (99Food), <code>requestCancellation</code>, <code>acceptCancellation</code>, <code>denyCancellation</code>.
                   </td>
                 </tr>
                 <tr>

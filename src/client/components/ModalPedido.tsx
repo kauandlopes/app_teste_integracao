@@ -243,7 +243,7 @@ export function ModalPedido({
             ))}
           </div>
 
-          {p.detalhePendente ? <div className="banner banner-warn">Buscando os itens do pedido no Hub. O sistema tenta de novo sozinho.</div> : null}
+          {p.detalhePendente ? <div className="banner banner-warn">Carregando os itens do pedido...</div> : null}
           {p.statusKanban === 'CANCELADO' && p.motivoCancelamento ? (
             <div className={p.arquivado ? 'banner banner-warn' : 'banner banner-err'}>
               {p.arquivado ? '' : 'Cancelado: '}
@@ -257,11 +257,13 @@ export function ModalPedido({
           ) : null}
           {p.semDados.map((s) => (
             <div className="banner banner-err" role="alert" key={s.id}>
-              {s.rotulo} às {formatarHora(s.em)}: chegou sem os dados para responder aqui. Responda no portal do iFood ou no app da 99Food. Se os dados chegarem, a resposta aparece nesta tela.
+              {/* Acontece quando a solicitacao chega pela reconciliacao (sem o corpo do webhook, sem disputeId/applyId) */}
+              {s.rotulo} às {formatarHora(s.em)}: responda no portal do iFood ou no app da 99Food.
             </div>
           ))}
-          {pedeCodigoDeEntrega(p) && p.statusKanban === 'ENTREGA' ? <div className="banner banner-warn">O iFood pediu o código de entrega: peça o código ao cliente e valide.</div> : null}
-          {aguardaConclusaoDoIfood(p) ? <div className="banner">O iFood conclui o pedido sozinho. Ele sai desta etapa quando a plataforma confirmar.</div> : null}
+          {pedeCodigoDeEntrega(p) && p.statusKanban === 'ENTREGA' ? <div className="banner banner-warn">Peça o código de entrega ao cliente.</div> : null}
+          {/* iFood nao tem endpoint de concluir: o pedido so muda com o evento CONCLUDED, que pode demorar apos a entrega */}
+          {aguardaConclusaoDoIfood(p) ? <div className="suave">Aguardando o iFood concluir.</div> : null}
           {cancelamentoLoja ? <div className="banner banner-warn">Cancelamento enviado e aguardando a plataforma: {cancelamentoLoja.motivo}</div> : null}
 
           {disputa ? (
@@ -293,7 +295,7 @@ export function ModalPedido({
                         </a>
                       ))}
                     </div>
-                    <div className="suave">O iFood pode exigir o acesso ao portal para abrir o arquivo.</div>
+                    {/* A URL da evidencia e do iFood e pode exigir sessao do portal */}
                   </>
                 ) : (
                   <div className="suave">Nenhuma foto veio nesta disputa.</div>

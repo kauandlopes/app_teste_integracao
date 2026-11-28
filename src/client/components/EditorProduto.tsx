@@ -290,10 +290,8 @@ function CampoCategoria({
           <strong>{valor.trim()}</strong> · {situacao}.
         </span>
       ) : null}
-      <span className="suave">
-        Todo produto precisa de categoria. Se ela não existir em uma das plataformas, é criada lá ao publicar.
-        {pizzaNativa ? ' A pizza nativa do iFood fica em seção própria: a categoria vale na 99Food.' : ''}
-      </span>
+      {/* Categoria e obrigatoria; a que faltar na plataforma e criada na publicacao (comparacao ignora acento e caixa). */}
+      {pizzaNativa ? <span className="suave">No iFood a pizza nativa usa seção própria; a categoria vale na 99Food.</span> : null}
       {falhou ? <span className="observacao">{falhou} Digite o nome da categoria.</span> : null}
       {lista?.avisos?.map((a) => (
         <span className="suave" key={a}>
@@ -484,11 +482,11 @@ export function EditorProduto({
               Preço diferente por plataforma
             </label>
           </div>
-          {f.porPlataforma ? (
-            <div className="banner banner-warn">
-              Opcional: preencha só onde o preço muda; campo vazio usa o preço padrão. Desmarcar apaga os preços por plataforma ao salvar. Vale também para cada adicional, tamanho, sabor, massa e borda.
-            </div>
-          ) : null}
+          {/*
+            precosPlataforma: so o campo preenchido e enviado. Vale para produto, adicional, tamanho, sabor, massa e
+            borda. Reenviar sem o campo volta ao preco padrao; a mudanca rapida de preco altera so o padrao.
+          */}
+          {f.porPlataforma ? <span className="suave">Campo vazio usa o preço padrão. Desmarcar apaga os preços por plataforma.</span> : null}
           {f.porPlataforma && !ehPizza ? <CamposPlataforma precos={f.precos} padrao={f.preco} mudar={(precos) => mudar({ precos })} /> : null}
 
           {ehPizza ? (
@@ -497,12 +495,12 @@ export function EditorProduto({
                 <input type="checkbox" checked={f.pizzaNativa} onChange={(e) => mudar({ pizzaNativa: e.target.checked })} />
                 No iFood, usar a pizza nativa (cria uma seção própria)
               </label>
-              <p className="suave" style={{ margin: 0 }}>
-                Desmarcado, a pizza entra na categoria informada como um item com grupos de tamanho, massa, borda e sabores.
-              </p>
+              {/* formatoIfood: PIZZA = pizza nativa (secao propria, cobranca por fracao); ITENS = item comum com grupos
+                  de tamanho, massa, borda e sabores, na categoria informada. Trocar o formato republica o item. */}
               <section className="secao">
                 <h3>Tamanhos</h3>
-                <p className="suave">O preço do tamanho é o preço final da pizza. Sabores, massas e bordas somam a ele.</p>
+                {/* Preco do tamanho = preco final da pizza; sabores, massas e bordas somam a ele (maximo 4 sabores). */}
+                <p className="suave">Preço final por tamanho.</p>
                 {f.tamanhos.map((t, i) => (
                   <div className="pilha" key={t.codigo}>
                   <div className="linha-tamanho">
@@ -552,9 +550,11 @@ export function EditorProduto({
                     Acréscimo diferente por tamanho
                   </label>
                 </div>
-                {f.precoPorTamanho ? (
-                  <div className="banner banner-warn">Acréscimos diferentes por tamanho publicam um item para cada tamanho (99Food e iFood em itens). Com o mesmo acréscimo em todos, sai um item só. Com mais de um sabor, os acréscimos são somados.</div>
-                ) : null}
+                {/*
+                  Acrescimo diferente por tamanho publica um item por tamanho (99Food e iFood no formato ITENS);
+                  com o mesmo acrescimo em todos sai um item so. Com varios sabores os acrescimos sao somados.
+                */}
+                {f.precoPorTamanho ? <span className="suave">Pode publicar um item para cada tamanho.</span> : null}
                 {f.sabores.map((s, i) => (
                   <div className="pilha" key={i}>
                   <div className="linha-opcao">
@@ -592,7 +592,7 @@ export function EditorProduto({
 
               <section className="secao">
                 <h3>Massas</h3>
-                <p className="suave">Sem massa cadastrada, o iFood recebe a massa Tradicional.</p>
+                {/* Sem massa cadastrada, o Hub envia "Tradicional" ao iFood, que exige o grupo. */}
                 <ListaOpcoes porPlataforma={f.porPlataforma} rotulo="Massa" opcoes={f.massas} mudar={(massas) => mudar({ massas })} />
               </section>
               <section className="secao">
@@ -610,7 +610,9 @@ export function EditorProduto({
 
           <section className="secao">
             <h3>{ehPizza ? 'Grupos extras' : ehCombo ? 'Etapas do combo' : 'Complementos e adicionais'}</h3>
-            <p className="suave">{ehCombo ? 'Cada grupo é uma etapa de escolha; a primeira é a principal. O preço do combo é o do campo Preço.' : 'Mínimo maior que zero torna o grupo obrigatório.'}</p>
+            {/* Combo: cada grupo e uma etapa e o primeiro e o principal; preco no produto. No iFood vira combo, na 99Food
+                item com grupos. Fora do combo, minimo maior que zero torna o grupo obrigatorio. */}
+            {ehCombo ? <p className="suave">A primeira etapa é a principal.</p> : null}
             {f.grupos.map((g, i) => (
               <div className="card pilha" key={i}>
                 <div className="linha-grupo">
@@ -653,7 +655,8 @@ export function EditorProduto({
             Cancelar
           </button>
           <button type="submit" className="btn btn-primary" disabled={salvando}>
-            {salvando ? 'Salvando...' : 'Salvar e enviar para iFood e 99Food'}
+            {/* Os destinos reais (lojas ativas) aparecem no topo do formulario */}
+            {salvando ? 'Salvando...' : destinos.length ? 'Salvar e enviar' : 'Salvar'}
           </button>
         </div>
       </form>

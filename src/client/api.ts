@@ -82,7 +82,9 @@ export class ApiErro extends Error {
   status: number;
   payload: any;
   constructor(status: number, msg: string, payload?: any) {
-    super(msg);
+    // A tela mostra so o texto. O codigo ([PLATAFORMA_HTTP_500], [CONEXAO_ENCERRADA]...) segue em payload.erro
+    // e fica gravado em Logs com requisicao, resposta e cURL.
+    super(msg.replace(/^\[[A-Z0-9_]+\]\s*/, ''));
     this.status = status;
     this.payload = payload;
   }

@@ -1,0 +1,923 @@
+{
+  "origem": "Pedido real de teste de 28/11/2026 (99Food, loja de teste). Dados pessoais, codigos e assinatura substituidos.",
+  "pedidoId": "5764703623590248759",
+  "plataforma": "99FOOD",
+  "passos": [
+    {
+      "em": "2026-11-28T12:53:43.538Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "99FOOD",
+        "x-target-loja": "5764618411079896616",
+        "x-target-evento": "99f-ee214dc6aa227a074fb1c6818dac2332771f751a",
+        "x-target-tipo": "orderNew",
+        "x-target-pedido": "5764703623590248759",
+        "x-target-seq": "41",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795870423",
+        "x-target-notificacao": "fd4237a8-9d53-4088-9b09-dd372e188b66",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "app_id": 1000000000000000001,
+        "app_shop_id": "5764618411079896616",
+        "type": "orderNew",
+        "timestamp": 1795870422,
+        "data": {
+          "order_id": "5764703623590248759",
+          "order_info": {
+            "order_id": "5764703623590248759",
+            "status": 100,
+            "order_index": 1,
+            "order_channel": "DiDi Food",
+            "remark": "",
+            "country": "BR",
+            "city_id": 55000243,
+            "timezone": "America/Sao_Paulo",
+            "pay_type": 1,
+            "pay_method": 1,
+            "pay_channel": 150,
+            "delivery_type": 2,
+            "delivery_eta": 0,
+            "expected_cook_eta": 0,
+            "expected_arrived_eta": 1795872219,
+            "create_time": 1795870420,
+            "order_timing": false,
+            "pay_time": 1795870422,
+            "complete_time": 0,
+            "cancel_time": 0,
+            "shop_confirm_time": 0,
+            "c_cancel_preference": 7,
+            "need_cutlery": true,
+            "price": {
+              "order_price": 13890,
+              "items_discount": 0,
+              "real_price": 15089,
+              "real_pay_price": 15089,
+              "delivery_price": 500,
+              "delivery_discount": 0,
+              "others_fees": {
+                "small_order_price": 0,
+                "total_tip_money": 0,
+                "service_price": 699,
+                "coupon_discount": 0
+              },
+              "refund_price": 0,
+              "customer_need_paying_money": 15089,
+              "store_charged_delivery_price": 500,
+              "commission_price": 0
+            },
+            "shop": {
+              "shop_id": "5764619645299983865",
+              "app_shop_id": "5764618411079896616",
+              "shop_addr": "Endereco da loja",
+              "shop_name": "Target Teste Teste",
+              "shop_phone": [
+                {
+                  "calling_code": 55,
+                  "phone": "11900000000",
+                  "type": "0"
+                }
+              ]
+            },
+            "receive_address": {
+              "uid": 100000000000000,
+              "name": "Cliente Exemplo",
+              "first_name": "Cliente",
+              "last_name": "Exemplo",
+              "calling_code": "+55",
+              "phone": "11900000000",
+              "city": "Cidade",
+              "country_code": "BR",
+              "poi_address": "Rua Exemplo, 100 - Centro, Cidade - UF",
+              "house_number": "1",
+              "poi_lat": 0,
+              "poi_lng": 0,
+              "coordinate_type": "wgs84",
+              "poi_display_name": "Rua Exemplo, 100",
+              "state": "UF",
+              "district": "Centro",
+              "street_name": "Rua Exemplo",
+              "street_number": "100",
+              "postal_code": "00000-000",
+              "complement": "",
+              "reference": "Referencia",
+              "virtual_phone_number": "08000000000",
+              "handover_page_url": "https://food-b-h5.99app.com/pt-BR/v2/confirmation-entrega",
+              "locator": "00000000"
+            },
+            "order_items": [
+              {
+                "mdu_id": "15C2D5C36045D659D9218D0DD9878B89",
+                "app_item_id": "pizza_atum_v3",
+                "app_external_id": "",
+                "name": "Pizza Atum",
+                "total_price": 4500,
+                "sku_price": 4200,
+                "amount": 1,
+                "remark": "",
+                "sub_item_list": [
+                  {
+                    "app_item_id": "opcao_tamanho_media_v3",
+                    "app_external_id": "",
+                    "name": "Média",
+                    "total_price": 0,
+                    "sku_price": 0,
+                    "amount": 1,
+                    "app_content_id": "mg_tamanho_pizza_geral_v3",
+                    "content_name": "Escolha o Tamanho",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 0,
+                    "shop_subside_price": 0
+                  },
+                  {
+                    "app_item_id": "opcao_borda_tradicional_v3",
+                    "app_external_id": "",
+                    "name": "Borda Tradicional",
+                    "total_price": 0,
+                    "sku_price": 0,
+                    "amount": 1,
+                    "app_content_id": "mg_tipo_borda_v3",
+                    "content_name": "Opções de Borda",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 0,
+                    "shop_subside_price": 0
+                  },
+                  {
+                    "app_item_id": "opcao_adicional_milho_v3",
+                    "app_external_id": "",
+                    "name": "Milho",
+                    "total_price": 300,
+                    "sku_price": 300,
+                    "amount": 1,
+                    "app_content_id": "mg_adicionais_classicos_v3",
+                    "content_name": "Turbine sua Pizza",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 300,
+                    "shop_subside_price": 0
+                  }
+                ],
+                "promo_type": 0,
+                "real_price": 4500,
+                "promotion_detail": {
+                  "promo_type": 0,
+                  "promo_discount": 0,
+                  "shop_subside_price": 0
+                },
+                "sales_type": "unit"
+              },
+              {
+                "mdu_id": "016E3C9CBA3CC2164A43B9BA4358C9EB",
+                "app_item_id": "TGT-COMBO-1",
+                "app_external_id": "TGT-COMBO-1",
+                "name": "Combo Batata e Bebida",
+                "total_price": 3700,
+                "sku_price": 3400,
+                "amount": 1,
+                "remark": "",
+                "sub_item_list": [
+                  {
+                    "app_item_id": "TGT-CB-RUSTICA",
+                    "app_external_id": "TGT-CB-RUSTICA",
+                    "name": "Batata rústica",
+                    "total_price": 300,
+                    "sku_price": 300,
+                    "amount": 1,
+                    "app_content_id": "TGT-COMBO-1.g.x.TGT-CB-PORCAO",
+                    "content_name": "Porção",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 300,
+                    "shop_subside_price": 0
+                  },
+                  {
+                    "app_item_id": "TGT-CB-COLA",
+                    "app_external_id": "TGT-CB-COLA",
+                    "name": "Refrigerante lata",
+                    "total_price": 0,
+                    "sku_price": 0,
+                    "amount": 1,
+                    "app_content_id": "TGT-COMBO-1.g.x.TGT-CB-BEBIDA",
+                    "content_name": "Bebida",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 0,
+                    "shop_subside_price": 0
+                  }
+                ],
+                "promo_type": 0,
+                "real_price": 3700,
+                "promotion_detail": {
+                  "promo_type": 0,
+                  "promo_discount": 0,
+                  "shop_subside_price": 0
+                },
+                "sales_type": "unit"
+              },
+              {
+                "mdu_id": "9D633DCDBF978D220FC8155E8C9B36FE",
+                "app_item_id": "TGT-LANCHE-1",
+                "app_external_id": "TGT-LANCHE-1",
+                "name": "Thor Burger",
+                "total_price": 5690,
+                "sku_price": 4290,
+                "amount": 1,
+                "remark": "oiiiii",
+                "sub_item_list": [
+                  {
+                    "app_item_id": "TGT-BACON",
+                    "app_external_id": "TGT-BACON",
+                    "name": "Bacon extra",
+                    "total_price": 1000,
+                    "sku_price": 500,
+                    "amount": 2,
+                    "app_content_id": "TGT-LANCHE-1.g.x.TGT-ADIC",
+                    "content_name": "Adicionais",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 1000,
+                    "shop_subside_price": 0
+                  },
+                  {
+                    "app_item_id": "TGT-QUEIJO",
+                    "app_external_id": "TGT-QUEIJO",
+                    "name": "Queijo extra",
+                    "total_price": 400,
+                    "sku_price": 400,
+                    "amount": 1,
+                    "app_content_id": "TGT-LANCHE-1.g.x.TGT-ADIC",
+                    "content_name": "Adicionais",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 400,
+                    "shop_subside_price": 0
+                  },
+                  {
+                    "app_item_id": "TGT-AOPONTO",
+                    "app_external_id": "TGT-AOPONTO",
+                    "name": "Ao ponto",
+                    "total_price": 0,
+                    "sku_price": 0,
+                    "amount": 1,
+                    "app_content_id": "TGT-LANCHE-1.g.x.TGT-PONTO",
+                    "content_name": "Ponto da carne",
+                    "content_app_external_id": "",
+                    "sub_item_list": [],
+                    "sales_type": "unit",
+                    "promo_type": 0,
+                    "real_price": 0,
+                    "shop_subside_price": 0
+                  }
+                ],
+                "promo_type": 0,
+                "real_price": 5690,
+                "promotion_detail": {
+                  "promo_type": 0,
+                  "promo_discount": 0,
+                  "shop_subside_price": 0
+                },
+                "sales_type": "unit"
+              }
+            ],
+            "fulfillment_mode": 0,
+            "bizline": 0,
+            "is_test": 1,
+            "handover_code": "0000"
+          }
+        }
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 4
+    },
+    {
+      "em": "2026-11-28T12:53:45.167Z",
+      "tipo": "consulta",
+      "rota": "GET /hub/v1/conexao/pedidos/{pedidoId}?formato=unificado",
+      "resposta": {
+        "status": 200,
+        "corpo": "ver detalheUnificado"
+      },
+      "ms": 1606
+    },
+    {
+      "em": "2026-11-28T12:57:00.996Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "confirm",
+        "plataforma": "99FOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "errno": 0,
+          "errmsg": "ok",
+          "requestId": "0ac738086b0acf9c5cbdbd951b976702",
+          "time": 1795870620,
+          "data": true
+        }
+      },
+      "ms": 859
+    },
+    {
+      "em": "2026-11-28T12:57:01.336Z",
+      "tipo": "webhook",
+      "rota": "POST /erp-simulador/api/webhook",
+      "cabecalhos": {
+        "x-target-plataforma": "99FOOD",
+        "x-target-loja": "5764618411079896616",
+        "x-target-evento": "99f-c7c1ea0cd3f4845b800615837004035c1ed7cf44",
+        "x-target-tipo": "orderConfirm",
+        "x-target-pedido": "5764703623590248759",
+        "x-target-seq": "42",
+        "x-target-tentativa": "1",
+        "x-target-timestamp": "1795870621",
+        "x-target-notificacao": "4774473d-5459-44ab-bf4f-0309e7411875",
+        "x-target-conexao": "<conexaoId>",
+        "x-target-loja-externa": "<lojaExternaId>",
+        "x-target-assinatura": "v1=<hmac-sha256 em hexadecimal>",
+        "content-type": "application/json",
+        "user-agent": "TargetHub/1"
+      },
+      "corpo": {
+        "app_id": 1000000000000000001,
+        "app_shop_id": "5764618411079896616",
+        "type": "orderConfirm",
+        "timestamp": 1795870621,
+        "data": {
+          "order_id": "5764703623590248759",
+          "order_info": {
+            "receive_address": null
+          }
+        }
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "recebido": true,
+          "novo": true
+        }
+      },
+      "ms": 12
+    },
+    {
+      "em": "2026-11-28T12:57:03.321Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "readyToPickup",
+        "plataforma": "99FOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "errno": 0,
+          "errmsg": "ok",
+          "requestId": "0ac738086b0acf9f5cbdbd951b977e02",
+          "time": 1795870623,
+          "data": {}
+        }
+      },
+      "ms": 599
+    },
+    {
+      "em": "2026-11-28T12:57:22.133Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "dispatch",
+        "plataforma": "99FOOD",
+        "dados": {
+          "courierName": "Entregador Exemplo",
+          "courierPhone": "11900000001"
+        }
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "errno": 0,
+          "errmsg": "ok",
+          "requestId": "0aa120bc6b0acfb1a03ba81f1ba3d502",
+          "time": 1795870642,
+          "data": {}
+        }
+      },
+      "ms": 1185
+    },
+    {
+      "em": "2026-11-28T12:57:26.631Z",
+      "tipo": "acao",
+      "rota": "POST /hub/v1/conexao/pedidos/{pedidoId}/acao",
+      "cabecalhos": {
+        "Authorization": "Bearer <token_da_conexao>",
+        "Idempotency-Key": "erp-<uuid da intencao>",
+        "Content-Type": "application/json"
+      },
+      "corpo": {
+        "acao": "conclude",
+        "plataforma": "99FOOD"
+      },
+      "resposta": {
+        "status": 200,
+        "corpo": {
+          "errno": 0,
+          "errmsg": "ok",
+          "requestId": "0aa120bc6b0acfb6a03ba81f1ba40c02",
+          "time": 1795870646,
+          "data": {}
+        }
+      },
+      "ms": 1074
+    }
+  ],
+  "detalheUnificado": {
+    "id": "5764703623590248759",
+    "codigoExibicao": "1",
+    "canal": "99FOOD",
+    "statusKanban": "NOVO",
+    "etapaOriginal": "RECEBIDO",
+    "tipoEntrega": "DELIVERY",
+    "modalidadePlataforma": "DELIVERY",
+    "categoriaPlataforma": null,
+    "entreguePor": "MERCHANT",
+    "cliente": {
+      "nome": "Cliente Exemplo",
+      "telefone": "0800 000 0000",
+      "documento": null,
+      "telefoneVirtual": "0800 000 0000",
+      "localizador": "00000000"
+    },
+    "enderecoEntrega": {
+      "formatado": "Rua Exemplo, 100",
+      "logradouro": "Rua Exemplo",
+      "numero": "100",
+      "complemento": "",
+      "bairro": "Centro",
+      "cidade": "Cidade",
+      "uf": "UF",
+      "cep": "00000000",
+      "referencia": "Referencia"
+    },
+    "valores": {
+      "moeda": "BRL",
+      "subtotal": 138.9,
+      "taxaEntrega": 5,
+      "total": 150.89,
+      "trocoPara": null
+    },
+    "pagamento": {
+      "forma": "Cartao de credito/debito (online)",
+      "pagoOnline": true
+    },
+    "itens": [
+      {
+        "id": "pizza_atum_v3",
+        "nome": "Pizza Atum",
+        "quantidade": 1,
+        "precoUnitario": 45,
+        "precoTotal": 45,
+        "observacao": null,
+        "codigoExterno": null,
+        "modificadores": [
+          {
+            "nome": "Média",
+            "quantidade": 1,
+            "precoUnitario": 0,
+            "codigoExterno": "opcao_tamanho_media_v3",
+            "idExterno": "opcao_tamanho_media_v3"
+          },
+          {
+            "nome": "Borda Tradicional",
+            "quantidade": 1,
+            "precoUnitario": 0,
+            "codigoExterno": "opcao_borda_tradicional_v3",
+            "idExterno": "opcao_borda_tradicional_v3"
+          },
+          {
+            "nome": "Milho",
+            "quantidade": 1,
+            "precoUnitario": 3,
+            "codigoExterno": "opcao_adicional_milho_v3",
+            "idExterno": "opcao_adicional_milho_v3"
+          }
+        ]
+      },
+      {
+        "id": "TGT-COMBO-1",
+        "nome": "Combo Batata e Bebida",
+        "quantidade": 1,
+        "precoUnitario": 37,
+        "precoTotal": 37,
+        "observacao": null,
+        "codigoExterno": "TGT-COMBO-1",
+        "modificadores": [
+          {
+            "nome": "Batata rústica",
+            "quantidade": 1,
+            "precoUnitario": 3,
+            "codigoExterno": "TGT-CB-RUSTICA",
+            "idExterno": "TGT-CB-RUSTICA"
+          },
+          {
+            "nome": "Refrigerante lata",
+            "quantidade": 1,
+            "precoUnitario": 0,
+            "codigoExterno": "TGT-CB-COLA",
+            "idExterno": "TGT-CB-COLA"
+          }
+        ]
+      },
+      {
+        "id": "TGT-LANCHE-1",
+        "nome": "Thor Burger",
+        "quantidade": 1,
+        "precoUnitario": 56.9,
+        "precoTotal": 56.9,
+        "observacao": "oiiiii",
+        "codigoExterno": "TGT-LANCHE-1",
+        "modificadores": [
+          {
+            "nome": "Bacon extra",
+            "quantidade": 2,
+            "precoUnitario": 5,
+            "codigoExterno": "TGT-BACON",
+            "idExterno": "TGT-BACON"
+          },
+          {
+            "nome": "Queijo extra",
+            "quantidade": 1,
+            "precoUnitario": 4,
+            "codigoExterno": "TGT-QUEIJO",
+            "idExterno": "TGT-QUEIJO"
+          },
+          {
+            "nome": "Ao ponto",
+            "quantidade": 1,
+            "precoUnitario": 0,
+            "codigoExterno": "TGT-AOPONTO",
+            "idExterno": "TGT-AOPONTO"
+          }
+        ]
+      }
+    ],
+    "observacoes": "Talheres: Sim (enviar talheres) | Código localizador (locator): 00000000",
+    "acoesPermitidas": [
+      "confirm",
+      "requestCancellation"
+    ],
+    "agendamento": {
+      "agendado": false,
+      "previsaoEntrega": "2026-11-28T13:23:39.000Z",
+      "inicioPreparo": null,
+      "previsaoPronto": null
+    },
+    "codigos": {
+      "retirada": null,
+      "coleta": null,
+      "entrega": null
+    },
+    "pagamentos": [
+      {
+        "forma": "Cartao de credito/debito (online)",
+        "bandeira": null,
+        "valor": 150.89,
+        "pagoOnline": true
+      }
+    ],
+    "ajustes": {
+      "descontoPlataforma": 0,
+      "descontoLoja": 0,
+      "taxaServico": 6.99,
+      "gorjeta": 0,
+      "dinheiroAReceber": 0,
+      "repasseLoja": 150.89
+    },
+    "pedidoTeste": true,
+    "criadoEm": "2026-11-28T12:53:40.000Z",
+    "bruto": {
+      "errno": 0,
+      "errmsg": "ok",
+      "requestId": "0aa136f46b0aced8943f53ac1bbdb402",
+      "time": 1795870425,
+      "data": {
+        "order_id": "5764703623590248759",
+        "status": 100,
+        "order_index": 1,
+        "order_channel": "DiDi Food",
+        "remark": "",
+        "city_id": 55000243,
+        "country": "BR",
+        "timezone": "America/Sao_Paulo",
+        "pay_type": 1,
+        "delivery_type": 2,
+        "expected_cook_eta": 0,
+        "expected_arrived_eta": 1795872219,
+        "create_time": 1795870420,
+        "order_timing": false,
+        "pay_time": 1795870422,
+        "complete_time": 0,
+        "cancel_time": 0,
+        "shop_confirm_time": 0,
+        "price": {
+          "order_price": 13890,
+          "others_fees": {
+            "small_order_price": 0,
+            "total_tip_money": 0,
+            "service_price": 699,
+            "coupon_discount": 0,
+            "meal_top_up_price": 0
+          },
+          "real_price": 15089,
+          "real_pay_price": 15089,
+          "delivery_price": 500,
+          "refund_price": 0,
+          "store_charged_delivery_price": 500,
+          "in_sale_refund_to_c_fee": 0,
+          "commission_price": 0,
+          "items_discount": 0,
+          "delivery_discount": 0,
+          "customer_need_paying_money": 15089
+        },
+        "shop": {
+          "shop_id": "5764619645299983865",
+          "app_shop_id": "5764618411079896616",
+          "shop_addr": "Endereco da loja",
+          "shop_name": "Target Teste Teste",
+          "shop_phone": [
+            {
+              "calling_code": 55,
+              "phone": "11900000000",
+              "type": "0"
+            }
+          ]
+        },
+        "receive_address": {
+          "uid": 100000000000000,
+          "name": "Cliente Exemplo",
+          "first_name": "Cliente",
+          "last_name": "Exemplo",
+          "calling_code": "+55",
+          "phone": "11900000000",
+          "city": "Cidade",
+          "country_code": "BR",
+          "poi_address": "Rua Exemplo, 100 - Centro, Cidade - UF",
+          "house_number": "1",
+          "poi_lat": 0,
+          "poi_lng": 0,
+          "coordinate_type": "wgs84",
+          "poi_display_name": "Rua Exemplo, 100",
+          "state": "UF",
+          "district": "Centro",
+          "street_name": "Rua Exemplo",
+          "street_number": "100",
+          "postal_code": "00000-000",
+          "complement": "",
+          "reference": "Referencia",
+          "virtual_phone_number": "08000000000",
+          "handover_page_url": "https://food-b-h5.99app.com/pt-BR/v2/confirmation-entrega",
+          "locator": "00000000"
+        },
+        "order_items": [
+          {
+            "app_item_id": "pizza_atum_v3",
+            "app_external_id": "",
+            "name": "Pizza Atum",
+            "total_price": 4500,
+            "sku_price": 4200,
+            "amount": 1,
+            "submit_refund_amount": 0,
+            "remark": "",
+            "sub_item_list": [
+              {
+                "app_item_id": "opcao_tamanho_media_v3",
+                "app_external_id": "",
+                "name": "Média",
+                "total_price": 0,
+                "sku_price": 0,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "mg_tamanho_pizza_geral_v3",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Escolha o Tamanho",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 0,
+                "promo_type": 0
+              },
+              {
+                "app_item_id": "opcao_borda_tradicional_v3",
+                "app_external_id": "",
+                "name": "Borda Tradicional",
+                "total_price": 0,
+                "sku_price": 0,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "mg_tipo_borda_v3",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Opções de Borda",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 0,
+                "promo_type": 0
+              },
+              {
+                "app_item_id": "opcao_adicional_milho_v3",
+                "app_external_id": "",
+                "name": "Milho",
+                "total_price": 300,
+                "sku_price": 300,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "mg_adicionais_classicos_v3",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Turbine sua Pizza",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 300,
+                "promo_type": 0
+              }
+            ],
+            "sales_type": "unit",
+            "mdu_id": "15C2D5C36045D659D9218D0DD9878B89",
+            "real_price": 4500
+          },
+          {
+            "app_item_id": "TGT-COMBO-1",
+            "app_external_id": "TGT-COMBO-1",
+            "name": "Combo Batata e Bebida",
+            "total_price": 3700,
+            "sku_price": 3400,
+            "amount": 1,
+            "submit_refund_amount": 0,
+            "remark": "",
+            "sub_item_list": [
+              {
+                "app_item_id": "TGT-CB-RUSTICA",
+                "app_external_id": "TGT-CB-RUSTICA",
+                "name": "Batata rústica",
+                "total_price": 300,
+                "sku_price": 300,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "TGT-COMBO-1.g.x.TGT-CB-PORCAO",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Porção",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 300,
+                "promo_type": 0
+              },
+              {
+                "app_item_id": "TGT-CB-COLA",
+                "app_external_id": "TGT-CB-COLA",
+                "name": "Refrigerante lata",
+                "total_price": 0,
+                "sku_price": 0,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "TGT-COMBO-1.g.x.TGT-CB-BEBIDA",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Bebida",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 0,
+                "promo_type": 0
+              }
+            ],
+            "sales_type": "unit",
+            "mdu_id": "016E3C9CBA3CC2164A43B9BA4358C9EB",
+            "real_price": 3700
+          },
+          {
+            "app_item_id": "TGT-LANCHE-1",
+            "app_external_id": "TGT-LANCHE-1",
+            "name": "Thor Burger",
+            "total_price": 5690,
+            "sku_price": 4290,
+            "amount": 1,
+            "submit_refund_amount": 0,
+            "remark": "oiiiii",
+            "sub_item_list": [
+              {
+                "app_item_id": "TGT-BACON",
+                "app_external_id": "TGT-BACON",
+                "name": "Bacon extra",
+                "total_price": 1000,
+                "sku_price": 500,
+                "amount": 2,
+                "submit_refund_amount": 0,
+                "app_content_id": "TGT-LANCHE-1.g.x.TGT-ADIC",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Adicionais",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 1000,
+                "promo_type": 0
+              },
+              {
+                "app_item_id": "TGT-QUEIJO",
+                "app_external_id": "TGT-QUEIJO",
+                "name": "Queijo extra",
+                "total_price": 400,
+                "sku_price": 400,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "TGT-LANCHE-1.g.x.TGT-ADIC",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Adicionais",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 400,
+                "promo_type": 0
+              },
+              {
+                "app_item_id": "TGT-AOPONTO",
+                "app_external_id": "TGT-AOPONTO",
+                "name": "Ao ponto",
+                "total_price": 0,
+                "sku_price": 0,
+                "amount": 1,
+                "submit_refund_amount": 0,
+                "app_content_id": "TGT-LANCHE-1.g.x.TGT-PONTO",
+                "content_app_external_id": "",
+                "sub_item_list": [],
+                "content_name": "Ponto da carne",
+                "sales_type": "unit",
+                "shop_subside_price": 0,
+                "real_price": 0,
+                "promo_type": 0
+              }
+            ],
+            "sales_type": "unit",
+            "mdu_id": "9D633DCDBF978D220FC8155E8C9B36FE",
+            "real_price": 5690
+          }
+        ],
+        "pickup_code": "0000",
+        "need_cutlery": true,
+        "fulfillment_mode": 0,
+        "bizline": 0,
+        "is_test": 1,
+        "c_cancel_preference": 7,
+        "promotions": [],
+        "shopper_info": {
+          "name": "",
+          "phone": ""
+        },
+        "pay_method": 1,
+        "pay_channel": 150,
+        "handover_code": "0000"
+      }
+    }
+  }
+}
