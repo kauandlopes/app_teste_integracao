@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ApiErro, Sessao, erpApi, extrairStatusIfood } from '../api';
+import { ApiErro, Sessao, erpApi, extrairStatusIfood, pedeConfirmacaoDeTroca } from '../api';
 import { Confirmacao, Mudanca, useConfirmar } from './Comuns';
 import { IconeAtualizar, IconeFechar } from './Icones';
 import { MenuTresPontos } from './MenuTresPontos';
@@ -114,8 +114,8 @@ export function PainelConexao({
     void carregarEntregas();
   }, [sessao.conexaoId, conectada]);
 
-  async function conectarCnpj(e: React.FormEvent) {
-    e.preventDefault();
+  async function conectarCnpj(e?: React.FormEvent, confirmarTroca = false): Promise<void> {
+    e?.preventDefault();
     setSalvandoCnpj(true);
     try {
       await erpApi.conectarCnpj({
@@ -123,10 +123,21 @@ export function PainelConexao({
         nome,
         transporte,
         ...(transporte === 'PUSH' && webhookUrl ? { webhookUrl } : {}),
+        confirmarTroca,
       });
       notificar('ok', `Empresa conectada via ${transporte}. Escolha agora o iFood e/ou 99Food para vincular.`);
       await aoAtualizarSessao();
     } catch (err) {
+      if (pedeConfirmacaoDeTroca(err)) {
+        return pedir({
+          titulo: 'Trocar a empresa conectada?',
+          confirmar: 'Trocar e arquivar pedidos',
+          aviso: err.message,
+          perigo: true,
+          conteudo: <Mudanca rotulo="CNPJ" de={sessao.cnpj} para={cnpj.replace(/\D/g, '')} />,
+          acao: () => conectarCnpj(undefined, true),
+        });
+      }
       notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao conectar CNPJ.');
       await aoAtualizarSessao();
     } finally {

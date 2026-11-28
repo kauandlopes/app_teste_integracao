@@ -21,6 +21,8 @@ export function encerrarConexao() {
   notificar('conexao');
 }
 
+export const pedidosAbertos = () => (db.prepare("SELECT COUNT(*) AS n FROM pedidos WHERE statusKanban NOT IN ('CONCLUIDO','CANCELADO')").get() as { n: number }).n;
+
 /** O que pertencia a outra conexao nao pode ser operado pela nova: sai das filas e dos pedidos em aberto. */
 export function descartarConexaoAnterior(novaConexaoId: string) {
   db.transaction(() => {
@@ -31,7 +33,10 @@ export function descartarConexaoAnterior(novaConexaoId: string) {
     const abertos = db.prepare("SELECT id FROM pedidos WHERE statusKanban NOT IN ('CONCLUIDO','CANCELADO')").all() as Array<{ id: string }>;
     for (const { id } of abertos) {
       const p = obterPedido(id)!;
+      // Sai do quadro como arquivado: a plataforma nao confirmou cancelamento nenhum
       p.statusKanban = 'CANCELADO';
+      p.estado.arquivado = true;
+      p.estado.falhaAutomatica = null;
       p.estado.motivoCancelamento = 'Arquivado pelo ERP: a conexão deste pedido foi encerrada. Confira no app da plataforma.';
       p.estado.pendencias = { disputa: null, cancelamentoCliente: null, reembolso: null, cancelamentoLoja: null };
       salvarPedido(p);

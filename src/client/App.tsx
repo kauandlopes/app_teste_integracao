@@ -148,7 +148,7 @@ export function App() {
         if (somRef.current) tocarAlerta();
         notificar('ok', `Pedido novo ${nomeCanal(d.canal)}.`);
       }
-      if (d.aviso) notificar('erro', `Pedido #${d.codigo ?? ''}: ${d.aviso}`);
+      if (d.aviso) notificar(d.nivel === 'info' ? 'ok' : 'erro', d.codigo ? `Pedido #${d.codigo}: ${d.aviso}` : d.aviso);
     });
     es.addEventListener('catalogo', () => void carregarProdutos());
     const atualizarSessao = () => void carregarSessao().catch(() => undefined);
@@ -174,7 +174,8 @@ export function App() {
   }, [encerrada]);
 
   const novos = pedidos.filter((p) => p.statusKanban === 'NOVO' && p.plataforma !== 'TD').length;
-  const urgentes = pedidos.filter((p) => p.pendencias.disputa || p.pendencias.cancelamentoCliente).length;
+  // Solicitacao vencida continua no quadro, mas para de tocar
+  const urgentes = pedidos.filter((p) => [p.pendencias.disputa, p.pendencias.cancelamentoCliente].some((s) => s && (!s.expiraEm || new Date(s.expiraEm).getTime() > Date.now()))).length;
 
   // Enquanto houver pedido sem aceite ou solicitacao com prazo curto, o alerta se repete
   useEffect(() => {

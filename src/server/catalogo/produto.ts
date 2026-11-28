@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { casasDemais, lerPreco } from '../../shared/preco.js';
 import { PLATAFORMAS_PRECO, type ComplementoPizza, type GrupoProduto, type PizzaProduto, type PrecosPlataforma, type ProdutoErp, type SaborPizza, type TamanhoPizza } from '../../shared/tipos.js';
 
 /**
@@ -28,9 +29,11 @@ function nome(v: unknown, onde: string, max = 150): string {
   return t;
 }
 
-function preco(v: unknown, onde: string): number {
-  const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v ?? 0);
-  if (!Number.isFinite(n) || n < 0 || n > 100_000) falha(`${onde}: preço inválido.`);
+export function preco(v: unknown, onde: string): number {
+  // null e o que sobra de um numero invalido depois do JSON: nao vira zero
+  const n = typeof v === 'string' ? lerPreco(v) : v === null ? NaN : Number(v ?? 0);
+  if (!Number.isFinite(n) || n < 0 || n > 100_000) falha(`${onde}: preço inválido. Use um valor como 10,99.`);
+  if (casasDemais(n)) falha(`${onde}: o preço aceita no máximo duas casas decimais (como 10,99).`);
   return Math.round(n * 100) / 100;
 }
 

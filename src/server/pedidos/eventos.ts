@@ -21,6 +21,8 @@ export interface Efeito {
   cancelamentoEmAnalise?: string;
   entregador?: Entregador;
   etapaEntrega?: string;
+  /** A entrega so termina com o codigo informado pelo cliente. */
+  codigoEntregaPedido?: boolean;
   motivoCancelamento?: string;
   aviso?: { texto: string; nivel: 'info' | 'alerta' };
 }
@@ -44,6 +46,7 @@ const CODIGOS_IFOOD: Record<string, string> = {
   AAO: 'ARRIVED_AT_ORIGIN',
   CLT: 'COLLECTED',
   AAD: 'ARRIVED_AT_DESTINATION',
+  DDCR: 'DELIVERY_DROP_CODE_REQUESTED',
 };
 
 const emIso = (v: unknown): string | null => {
@@ -52,6 +55,23 @@ const emIso = (v: unknown): string | null => {
 };
 const somar = (iso: string, ms: number) => new Date(new Date(iso).getTime() + ms).toISOString();
 const texto = (...valores: unknown[]) => String(valores.find((v) => typeof v === 'string' && v.trim()) ?? '').trim();
+
+/** Fotos e itens citados na reclamacao: o iFood os manda em metadata ou em metadata.metadata. */
+function anexosDaDisputa(m: any) {
+  const primeiraLista = (...v: unknown[]): any[] => (v.find(Array.isArray) as any[]) ?? [];
+  const evidencias = primeiraLista(m.evidences, m.metadata?.evidences)
+    .map((x: any) => ({ url: String(x?.url ?? x ?? ''), tipo: String(x?.contentType ?? '') }))
+    .filter((x) => /^https?:\/\//i.test(x.url));
+  const itens = primeiraLista(m.items, m.metadata?.items)
+    .map((i: any) => {
+      const nome = texto(i?.name, i?.description);
+      const motivo = texto(i?.reason);
+      if (!nome && !motivo) return '';
+      return `${i?.quantity ? `${i.quantity}x ` : ''}${nome || 'Item'}${motivo ? `: ${motivo}` : ''}`;
+    })
+    .filter(Boolean);
+  return { evidencias, itens };
+}
 
 const alerta = (t: string) => ({ texto: t, nivel: 'alerta' as const });
 const info = (t: string) => ({ texto: t, nivel: 'info' as const });
@@ -96,7 +116,7 @@ function eventoIfood(tipo: string, c: any, ocorridoEm: string): Efeito {
       const motivo = texto(m.reason, m.message, c.reason) || 'Solicitação de cancelamento';
       return id
         ? e('Cancelamento solicitado', {
-            disputa: { id, mensagem: motivo, expiraEm: emIso(m.expiresAt), tipo: 'CANCELLATION', alternativas: [] },
+            disputa: { id, mensagem: motivo, expiraEm: emIso(m.expiresAt), tipo: 'CANCELLATION', alternativas: [], aoExpirar: texto(m.timeoutAction) || null, ...anexosDaDisputa(m) },
             aviso: alerta('Solicitação de cancelamento aguardando resposta.'),
           })
         : e('Cancelamento em análise', { cancelamentoEmAnalise: motivo, aviso: info('Cancelamento em análise na plataforma.') });
@@ -113,6 +133,8 @@ function eventoIfood(tipo: string, c: any, ocorridoEm: string): Efeito {
           expiraEm: emIso(m.expiresAt) ?? somar(ocorridoEm, 30 * 60_000),
           tipo: texto(m.handshakeType, m.action) || null,
           alternativas: Array.isArray(m.alternatives) ? m.alternatives : [],
+          aoExpirar: texto(m.timeoutAction) || null,
+          ...anexosDaDisputa(m),
         },
         aviso: alerta('Disputa aguardando resposta.'),
       });
@@ -149,7 +171,7 @@ function eventoIfood(tipo: string, c: any, ocorridoEm: string): Efeito {
     case 'DELIVERY_PICKUP_CODE_REQUESTED':
       return e('Código de coleta solicitado', { aviso: alerta('Confira o código de coleta com o entregador.') });
     case 'DELIVERY_DROP_CODE_REQUESTED':
-      return e('Código de entrega solicitado', { aviso: alerta('A entrega exige o código informado pelo cliente.') });
+      return e('Código de entrega solicitado', { codigoEntregaPedido: true, aviso: alerta('A entrega exige o código informado pelo cliente.') });
     default:
       // Evento novo ou nao mapeado: entra no historico e o pedido e relido para nao perder mudanca
       return e(tipo.replace(/_/g, ' ').toLowerCase() || 'evento', { recarregar: true });

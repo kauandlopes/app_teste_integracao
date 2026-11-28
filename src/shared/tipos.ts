@@ -14,6 +14,12 @@ export interface Disputa {
   expiraEm: string | null;
   tipo: string | null;
   alternativas: unknown[];
+  /** O que o iFood faz se a loja nao responder (timeoutAction). */
+  aoExpirar?: string | null;
+  /** Fotos enviadas pelo cliente. */
+  evidencias?: Array<{ url: string; tipo: string }>;
+  /** Itens citados na reclamacao. */
+  itens?: string[];
 }
 
 /** Cliente pediu cancelamento na 99Food (orderCancelApply): sem resposta em 5 min a 99 recusa sozinha. */
@@ -44,6 +50,24 @@ export interface Pendencias {
 export interface Entregador {
   nome: string;
   telefone: string;
+}
+
+/** Acao que o ERP faz sozinho (aceite e inicio de preparo) e que falhou. Fica na tela ate o pedido avancar. */
+export interface FalhaAutomatica {
+  acao: 'confirm' | 'startPreparation';
+  erro: string;
+  tentativas: number;
+  /** null: o ERP desistiu e o operador precisa agir. */
+  proximaEm: string | null;
+  /** Fim do prazo de aceite da plataforma (somente no aceite). */
+  limiteEm: string | null;
+}
+
+/** Evento de disputa ou solicitacao importado pela reconciliacao sem os dados para responder. */
+export interface SolicitacaoSemDados {
+  id: string;
+  rotulo: string;
+  em: string;
 }
 
 export interface Aviso {
@@ -128,6 +152,12 @@ export interface PedidoErp {
   motivoCancelamento: string | null;
   observacaoErp: string;
   preparoIniciado: boolean;
+  /** Entrega propria do iFood que exige o codigo do cliente. */
+  codigoEntrega: 'PEDIDO' | 'CONFIRMADO' | null;
+  falhaAutomatica: FalhaAutomatica | null;
+  semDados: SolicitacaoSemDados[];
+  /** Saiu da operacao por troca de conexao: a plataforma nao confirmou cancelamento. */
+  arquivado: boolean;
   criadoEm: string;
   atualizadoEm: string;
   acoes: AcaoDisponivel[];

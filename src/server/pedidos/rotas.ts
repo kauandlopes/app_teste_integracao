@@ -98,7 +98,8 @@ export function rotasPedidos(): Router {
 
   api.delete('/pedidos/simulacoes', (_req, res) => {
     const r = db.prepare("DELETE FROM pedidos WHERE id LIKE 'simhub-%'").run();
-    db.prepare("DELETE FROM eventos WHERE pedidoId LIKE 'simhub-%'").run();
+    // Os eventos ficam (ja processados): sem eles a reconciliacao traria os simulados apagados de volta
+    db.prepare("UPDATE eventos SET estado = 'PROCESSADO' WHERE pedidoId LIKE 'simhub-%'").run();
     notificar('pedidos', {});
     res.json({ removidos: r.changes });
   });
@@ -139,7 +140,10 @@ export function rotasPedidos(): Router {
     if (!p) return res.status(404).json({ erro: 'Pedido não encontrado.' });
     if (typeof req.body?.observacaoErp === 'string') p.estado.observacaoErp = req.body.observacaoErp.trim();
     const etapas: StatusKanban[] = ['NOVO', 'PREPARO', 'PRONTO', 'ENTREGA', 'CONCLUIDO', 'CANCELADO'];
-    if (etapas.includes(req.body?.statusKanban)) p.statusKanban = req.body.statusKanban;
+    if (etapas.includes(req.body?.statusKanban)) {
+      p.statusKanban = req.body.statusKanban;
+      p.estado.arquivado = false;
+    }
     salvarPedido(p);
     notificar('pedidos', { pedidoId: p.id });
     res.json({ ok: true });

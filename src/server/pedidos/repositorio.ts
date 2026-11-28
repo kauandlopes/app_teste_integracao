@@ -1,5 +1,5 @@
 import { db } from '../db.js';
-import type { Aviso, Entregador, EventoPedido, ItemPedido, Modalidade, PedidoErp, Pendencias, StatusKanban } from '../../shared/tipos.js';
+import type { Aviso, Entregador, EventoPedido, FalhaAutomatica, ItemPedido, Modalidade, PedidoErp, Pendencias, SolicitacaoSemDados, StatusKanban } from '../../shared/tipos.js';
 import { colunasDe, detalheValido, extrasDe } from './detalhe.js';
 import { acoesDisponiveis, avancarStatus, ehSimulado } from './regras.js';
 
@@ -15,8 +15,11 @@ export interface EstadoPedido {
   /** Ids de disputas e solicitacoes ja respondidas ou encerradas: evento atrasado nao as reabre. */
   resolvidas: string[];
   aceiteAutomaticoFeito: boolean;
-  /** A plataforma recusou o inicio automatico do preparo agendado. */
-  agendamentoRecusado: boolean;
+  /** Aceite ou inicio de preparo automatico que falhou. proximaEm em milissegundos; a intencao repete a mesma chave. */
+  falhaAutomatica: (Omit<FalhaAutomatica, 'proximaEm'> & { proximaEm: number | null; intencao: string }) | null;
+  codigoEntrega: 'PEDIDO' | 'CONFIRMADO' | null;
+  semDados: SolicitacaoSemDados[];
+  arquivado: boolean;
 }
 
 export interface RegistroPedido {
@@ -49,7 +52,10 @@ const estadoVazio = (): EstadoPedido => ({
   preparoIniciado: false,
   resolvidas: [],
   aceiteAutomaticoFeito: false,
-  agendamentoRecusado: false,
+  falhaAutomatica: null,
+  codigoEntrega: null,
+  semDados: [],
+  arquivado: false,
 });
 
 function deLinha(l: any): RegistroPedido {
@@ -143,7 +149,19 @@ export function mesclarDetalhe(p: RegistroPedido, d: any): boolean {
 
 const pagamentoNaEntrega = (p: RegistroPedido) => p.detalhe?.pagamento?.forma === 'DINHEIRO' || p.detalhe?.pagamento?.pagoOnline === false;
 
+/** A falha so interessa enquanto o pedido ainda precisa daquela acao. */
+export function falhaVigente(p: RegistroPedido) {
+  const f = p.estado.falhaAutomatica;
+  if (!f) return null;
+  const precisa = f.acao === 'confirm' ? p.statusKanban === 'NOVO' : p.statusKanban === 'PREPARO' && !p.estado.preparoIniciado;
+  return precisa ? f : null;
+}
+
+/** Depois disso a solicitacao sem dados ja venceu em qualquer plataforma. */
+const VALIDADE_SEM_DADOS_MS = 24 * 3600_000;
+
 export function paraTela(p: RegistroPedido): PedidoErp {
+  const falha = falhaVigente(p);
   const extras = extrasDe(p.plataforma, p.detalhe);
   const plataforma = p.plataforma as PedidoErp['plataforma'];
   return {
@@ -170,6 +188,12 @@ export function paraTela(p: RegistroPedido): PedidoErp {
     motivoCancelamento: p.estado.motivoCancelamento,
     observacaoErp: p.estado.observacaoErp,
     preparoIniciado: p.estado.preparoIniciado,
+    codigoEntrega: p.estado.codigoEntrega,
+    falhaAutomatica: falha
+      ? { acao: falha.acao, erro: falha.erro, tentativas: falha.tentativas, limiteEm: falha.limiteEm, proximaEm: falha.proximaEm ? new Date(falha.proximaEm).toISOString() : null }
+      : null,
+    semDados: p.estado.semDados.filter((s) => Date.now() - new Date(s.em).getTime() < VALIDADE_SEM_DADOS_MS),
+    arquivado: p.estado.arquivado,
     criadoEm: p.criadoEm,
     atualizadoEm: p.atualizadoEm,
     acoes: acoesDisponiveis({
@@ -178,6 +202,7 @@ export function paraTela(p: RegistroPedido): PedidoErp {
       statusKanban: p.statusKanban,
       modalidade: p.modalidade,
       preparoIniciado: p.estado.preparoIniciado,
+      codigoEntrega: p.estado.codigoEntrega,
       cancelamentoEmAnalise: !!p.estado.pendencias.cancelamentoLoja,
       pagamentoNaEntrega: pagamentoNaEntrega(p),
       temItensAjustaveis: extras.itensAjustaveis.length > 0,

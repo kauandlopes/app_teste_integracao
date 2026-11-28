@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ApiErro, erpApi } from '../api';
+import { ApiErro, erpApi, pedeConfirmacaoDeTroca } from '../api';
+import { useConfirmar } from './Comuns';
 import { IconeOlho } from './Icones';
 import { MenuTresPontos } from './MenuTresPontos';
 
@@ -25,9 +26,10 @@ export function TelaEntrada({
   const [mostrarServidor, setMostrarServidor] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const { pedir, dialogo } = useConfirmar();
 
-  async function enviar(e: React.FormEvent) {
-    e.preventDefault();
+  async function enviar(e?: React.FormEvent, confirmarTroca = false): Promise<void> {
+    e?.preventDefault();
     if (!token.trim()) {
       setErro('Informe o token da integração para acessar.');
       return;
@@ -35,9 +37,19 @@ export function TelaEntrada({
     setCarregando(true);
     setErro(null);
     try {
-      await erpApi.entrar(baseUrl.trim(), token.trim());
+      await erpApi.entrar(baseUrl.trim(), token.trim(), confirmarTroca);
       aoEntrar();
     } catch (err) {
+      if (pedeConfirmacaoDeTroca(err)) {
+        return pedir({
+          titulo: 'Entrar com outro integrador?',
+          confirmar: 'Trocar e arquivar pedidos',
+          aviso: err.message,
+          perigo: true,
+          conteudo: <span>O token informado é de outro integrador. A conexão salva neste ERP será desfeita.</span>,
+          acao: () => enviar(undefined, true),
+        });
+      }
       setErro(err instanceof ApiErro ? err.message : 'Falha ao conectar no servidor.');
     } finally {
       setCarregando(false);
@@ -129,6 +141,7 @@ export function TelaEntrada({
           {carregando ? 'Validando acesso...' : 'Entrar no sistema'}
         </button>
       </form>
+      {dialogo}
     </div>
   );
 }

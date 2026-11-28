@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CategoriaCriada, CategoriaEspelho, erpApi, formatarMoeda, GrupoEspelho, ItemEspelho, lerPreco, LojaVinculada, mensagemDe, nomeCanal, ResultadoCategoria } from '../api';
+import { casasDemais, CategoriaCriada, CategoriaEspelho, erpApi, formatarMoeda, GrupoEspelho, ItemEspelho, lerPreco, LojaVinculada, mensagemDe, nomeCanal, ResultadoCategoria } from '../api';
 import { Contagem, Mudanca, useConfirmar } from './Comuns';
 import { IconeAtualizar, IconeSeta } from './Icones';
 
@@ -15,7 +15,7 @@ const CRIACAO: Record<CategoriaCriada['estado'], [string, string]> = {
 /** O que esta publicado em cada plataforma, com ajustes rapidos para itens que nao sao cadastrados no ERP. */
 export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number; desabilitado?: boolean; aoSalvar: (novo: number) => void }) {
   const [texto, setTexto] = useState<string | null>(null);
-  const [invalido, setInvalido] = useState(false);
+  const [invalido, setInvalido] = useState('');
   // O campo fica aberto ate o valor mudar: cancelar a confirmacao ou falhar no envio nao apaga o que foi digitado
   useEffect(() => setTexto(null), [valor]);
   if (texto === null) {
@@ -28,8 +28,9 @@ export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number
   const salvar = () => {
     const novo = lerPreco(texto);
     // Campo vazio nao vira preco zero
-    if (!texto.trim() || !Number.isFinite(novo) || novo < 0) return setInvalido(true);
-    setInvalido(false);
+    if (!texto.trim() || !Number.isFinite(novo) || novo < 0) return setInvalido('Preço inválido. Use um valor como 10,99.');
+    if (casasDemais(novo)) return setInvalido('Use no máximo duas casas decimais.');
+    setInvalido('');
     if (novo === valor) setTexto(null);
     else aoSalvar(novo);
   };
@@ -40,7 +41,7 @@ export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number
         autoFocus
         inputMode="decimal"
         aria-label="Novo preço"
-        aria-invalid={invalido}
+        aria-invalid={!!invalido}
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
         onKeyDown={(e) => {
@@ -58,7 +59,7 @@ export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number
       <button type="button" className="btn btn-sm" onClick={() => setTexto(null)}>
         Cancelar
       </button>
-      {invalido ? <span className="observacao">Preço inválido.</span> : null}
+      {invalido ? <span className="observacao">{invalido}</span> : null}
     </span>
   );
 }

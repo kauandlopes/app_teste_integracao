@@ -1,5 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AcaoDisponivel, erpApi, formatarHora, formatarMoeda, mensagemDe, MotivoCancelamento, nomeCanal, PedidoErp, StatusKanban } from '../api';
+import {
+  AcaoDisponivel,
+  consequenciaDoPrazo,
+  erpApi,
+  FalhaAutomatica,
+  formatarHora,
+  formatarMoeda,
+  lerAlternativas,
+  mensagemDe,
+  MotivoCancelamento,
+  nomeCanal,
+  PedidoErp,
+  resultadoDaAcao,
+  StatusKanban,
+} from '../api';
 import { useConfirmar, useDescarte } from './Comuns';
 import { IconeFechar } from './Icones';
 import { Modal } from './Modal';
@@ -19,7 +33,31 @@ export const ROTULO_MODALIDADE = {
   MESA: 'Consumo no local',
 } as const;
 
-const CONTRAPROPOSTAS: Record<string, string> = { REFUND: 'Reembolso parcial', ADDITIONAL_TIME: 'Tempo adicional' };
+const CONTRAPROPOSTAS = { REFUND: 'Reembolso parcial', ADDITIONAL_TIME: 'Tempo adicional' } as const;
+const MOTIVOS_TEMPO: Record<string, string> = { HIGH_STORE_DEMAND: 'Muitos pedidos na loja', UNKNOWN: 'Outro motivo' };
+
+export const rotuloDaEtapa = (p: PedidoErp) => (p.arquivado ? 'Arquivado' : ROTULO_ETAPA[p.statusKanban]);
+
+/** Entrega propria ou retirada no iFood: quem conclui e a plataforma. */
+export const aguardaConclusaoDoIfood = (p: PedidoErp) =>
+  p.plataforma === 'IFOOD' &&
+  !p.simulado &&
+  ((p.statusKanban === 'ENTREGA' && p.modalidade === 'ENTREGA_PROPRIA') || (p.statusKanban === 'PRONTO' && (p.modalidade === 'RETIRADA' || p.modalidade === 'MESA')));
+
+export const pedeCodigoDeEntrega = (p: PedidoErp) => p.codigoEntrega === 'PEDIDO' && p.acoes.some((a) => a.acao === 'verifyDeliveryCode');
+
+/** Frase unica sobre a falha do aceite ou do preparo automatico, no quadro e no pedido. */
+export function textoDaFalha(f: FalhaAutomatica): string {
+  const oQue = f.acao === 'confirm' ? 'Aceite automático falhou' : 'Início automático do preparo falhou';
+  const manual = f.acao === 'confirm' ? 'Aceite o pedido manualmente' : 'Inicie o preparo manualmente';
+  const vencido = !!f.limiteEm && new Date(f.limiteEm).getTime() <= Date.now();
+  const depois = vencido
+    ? `O prazo de aceite terminou às ${formatarHora(f.limiteEm!)}: confira no app da plataforma se o pedido foi cancelado.`
+    : f.proximaEm
+      ? `Nova tentativa às ${new Date(f.proximaEm).toLocaleTimeString('pt-BR')}${f.limiteEm ? `, prazo de aceite até ${formatarHora(f.limiteEm)}` : ''}.`
+      : `Sem novas tentativas. ${manual}${f.limiteEm ? ` até ${formatarHora(f.limiteEm)}` : ''}.`;
+  return `${oQue} (${f.tentativas} ${f.tentativas === 1 ? 'tentativa' : 'tentativas'}): ${f.erro.replace(/\.?$/, '.')} ${depois}`;
+}
 
 export const novaIntencao = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
@@ -59,6 +97,7 @@ export function ModalPedido({
   const [subrecurso, setSubrecurso] = useState('');
   const [observacao, setObservacao] = useState(pedido.observacaoErp);
   const [digitou, setDigitou] = useState(false);
+  const [erroAcao, setErroAcao] = useState('');
   const descarte = useDescarte(digitou || observacao !== pedido.observacaoErp, aoFechar);
   const { pedir, dialogo } = useConfirmar();
   // Mesma intencao enquanto o operador repete a mesma acao: erro de rede nao duplica o comando
@@ -67,11 +106,13 @@ export function ModalPedido({
   const p = pedido;
   const campo = (nome: string) => campos[nome] ?? '';
   const definir = (nome: string, valor: string) => {
+    setErroAcao('');
     setDigitou(true);
     setCampos((c) => ({ ...c, [nome]: valor }));
   };
 
   useEffect(() => {
+    setErroAcao('');
     setDigitou(false);
     setCampos({ nome: p.entregador?.nome ?? '', telefone: p.entregador?.telefone ?? '', veiculo: 'MOTORCYCLE' });
     if (acao?.pede === 'motivo') {
@@ -90,19 +131,24 @@ export function ModalPedido({
     const chave = `${nome}:${JSON.stringify(dados)}`;
     const intencao = intencoes.current.get(chave) ?? novaIntencao();
     intencoes.current.set(chave, intencao);
+    const rotulo = p.acoes.find((a) => a.acao === nome)?.rotulo ?? 'Resposta';
     setOcupado(true);
+    setErroAcao('');
     try {
-      await erpApi.acaoPedido(p.id, nome, dados, intencao);
+      const r = await erpApi.acaoPedido(p.id, nome, dados, intencao);
       intencoes.current.delete(chave);
-      notificar('ok', `Pedido #${p.codigoCurto}: ação enviada.`);
+      notificar('ok', `Pedido #${p.codigoCurto}: ${resultadoDaAcao(p, nome, rotulo, r.resposta)}`);
       setAcao(null);
       setCampos({});
       setDigitou(false);
       await aoRecarregar();
     } catch (err) {
       // Recusa definitiva do Hub fica em cache por 24 h: a proxima tentativa precisa de outra intencao
-      if ((err as any)?.status && (err as any).status < 500) intencoes.current.delete(chave);
-      notificar('erro', mensagemDe(err, 'Falha ao enviar a ação.'));
+      // Comando ainda em andamento no Hub mantem a chave: outra duplicaria o envio
+      if ((err as any)?.status && (err as any).status < 500 && (err as any).payload?.resposta?.codigo !== 'COMANDO_EM_ANDAMENTO') intencoes.current.delete(chave);
+      const mensagem = mensagemDe(err, 'Falha ao enviar a ação.');
+      setErroAcao(mensagem);
+      notificar('erro', `Pedido #${p.codigoCurto}: ${mensagem}`);
     } finally {
       setOcupado(false);
     }
@@ -115,17 +161,20 @@ export function ModalPedido({
 
   const clicar = (a: AcaoDisponivel) => (a.pede ? setAcao(a) : void executar(a.acao));
 
-  /** Aceitar cancelamento ou reembolso encerra a solicitacao e nao volta atras. */
-  const confirmarAceite = (rotulo: string, nome: string, idPendencia: unknown, extra: Record<string, unknown> = {}) =>
+  /** Responder a uma solicitacao (aceitar, recusar ou propor) nao volta atras. */
+  const confirmarResposta = (rotulo: string, nome: string, idPendencia: unknown, extra: Record<string, unknown> = {}, detalhe = '') =>
     pedir({
       titulo: `${rotulo}?`,
       confirmar: rotulo,
       aviso: 'A resposta vai para a plataforma e não pode ser desfeita.',
       perigo: true,
       conteudo: (
-        <span>
-          Pedido #{p.codigoCurto} ({nomeCanal(p.plataforma)}), {p.clienteNome}, {formatarMoeda(p.totalReal)}.
-        </span>
+        <>
+          <span>
+            Pedido #{p.codigoCurto} ({nomeCanal(p.plataforma)}), {p.clienteNome}, {formatarMoeda(p.totalReal)}.
+          </span>
+          {detalhe ? <strong>{detalhe}</strong> : null}
+        </>
       ),
       acao: () => executar(nome, { ...extra, idPendencia }),
     });
@@ -154,8 +203,14 @@ export function ModalPedido({
   const avancadas = p.acoes.filter((a) => a.tipo === 'avancada');
   const { disputa, cancelamentoCliente, reembolso, cancelamentoLoja } = p.pendencias;
   // So as alternativas que a propria disputa oferece
-  const contrapropostas = ((disputa?.alternativas ?? []) as Array<{ id?: string; type?: string }>).filter((a) => !!a?.id && !!CONTRAPROPOSTAS[a.type ?? '']);
+  const contrapropostas = lerAlternativas(disputa?.alternativas);
   const alternativa = contrapropostas.find((a) => a.id === campo('alternativeId'));
+  const propostaPronta = !!alternativa && (alternativa.tipo === 'REFUND' ? !!campo('valor').trim() : !!campo('minutos') && !!campo('motivoTempo').trim());
+  const resumoDaProposta = !alternativa
+    ? ''
+    : alternativa.tipo === 'REFUND'
+      ? `Reembolso parcial de R$ ${campo('valor')}`
+      : `Mais ${campo('minutos')} minutos (${MOTIVOS_TEMPO[campo('motivoTempo')] ?? campo('motivoTempo')})`;
 
   return (
     <Modal aoFechar={descarte.fechar}>
@@ -164,7 +219,7 @@ export function ModalPedido({
           <div className="linha">
             <h2 style={{ margin: 0, fontSize: 18 }}>Pedido #{p.codigoCurto}</h2>
             <span className="pill">{nomeCanal(p.plataforma)}</span>
-            <span className={p.statusKanban === 'CANCELADO' ? 'pill pill-err' : 'pill pill-info'}>{ROTULO_ETAPA[p.statusKanban]}</span>
+            <span className={p.arquivado ? 'pill pill-warn' : p.statusKanban === 'CANCELADO' ? 'pill pill-err' : 'pill pill-info'}>{rotuloDaEtapa(p)}</span>
             <span className="pill">{ROTULO_MODALIDADE[p.modalidade]}</span>
             {p.simulado ? <span className="pill pill-warn">Simulado</span> : null}
             {p.extras.pedidoTeste ? <span className="pill pill-warn">Teste da plataforma</span> : null}
@@ -189,7 +244,24 @@ export function ModalPedido({
           </div>
 
           {p.detalhePendente ? <div className="banner banner-warn">Buscando os itens do pedido no Hub. O sistema tenta de novo sozinho.</div> : null}
-          {p.statusKanban === 'CANCELADO' && p.motivoCancelamento ? <div className="banner banner-err">Cancelado: {p.motivoCancelamento}</div> : null}
+          {p.statusKanban === 'CANCELADO' && p.motivoCancelamento ? (
+            <div className={p.arquivado ? 'banner banner-warn' : 'banner banner-err'}>
+              {p.arquivado ? '' : 'Cancelado: '}
+              {p.motivoCancelamento}
+            </div>
+          ) : null}
+          {p.falhaAutomatica ? (
+            <div className="banner banner-err" role="alert">
+              {textoDaFalha(p.falhaAutomatica)}
+            </div>
+          ) : null}
+          {p.semDados.map((s) => (
+            <div className="banner banner-err" role="alert" key={s.id}>
+              {s.rotulo} às {formatarHora(s.em)}: chegou sem os dados para responder aqui. Responda no portal do iFood ou no app da 99Food. Se os dados chegarem, a resposta aparece nesta tela.
+            </div>
+          ))}
+          {pedeCodigoDeEntrega(p) && p.statusKanban === 'ENTREGA' ? <div className="banner banner-warn">O iFood pediu o código de entrega: peça o código ao cliente e valide.</div> : null}
+          {aguardaConclusaoDoIfood(p) ? <div className="banner">O iFood conclui o pedido sozinho. Ele sai desta etapa quando a plataforma confirmar.</div> : null}
           {cancelamentoLoja ? <div className="banner banner-warn">Cancelamento enviado e aguardando a plataforma: {cancelamentoLoja.motivo}</div> : null}
 
           {disputa ? (
@@ -199,39 +271,107 @@ export function ModalPedido({
                 <Prazo ate={disputa.expiraEm} />
               </div>
               <div>{disputa.mensagem}</div>
-              {disputa.alternativas.length ? <pre className="code-block">{JSON.stringify(disputa.alternativas, null, 2)}</pre> : null}
+              <div className="observacao">{consequenciaDoPrazo(disputa.aoExpirar)}</div>
+              {disputa.itens?.length ? (
+                <div>
+                  <div className="field-label">Itens reclamados</div>
+                  {disputa.itens.map((i, n) => (
+                    <div className="suave" key={n}>
+                      {i}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div>
+                <div className="field-label">Evidências do cliente</div>
+                {disputa.evidencias?.length ? (
+                  <>
+                    <div className="linha">
+                      {disputa.evidencias.map((e, n) => (
+                        <a key={e.url} className="btn btn-sm" href={e.url} target="_blank" rel="noreferrer">
+                          Abrir evidência {n + 1}
+                        </a>
+                      ))}
+                    </div>
+                    <div className="suave">O iFood pode exigir o acesso ao portal para abrir o arquivo.</div>
+                  </>
+                ) : (
+                  <div className="suave">Nenhuma foto veio nesta disputa.</div>
+                )}
+              </div>
               <input className="input input-sm" placeholder="Resposta ao cliente (opcional)" value={campo('texto')} onChange={(e) => definir('texto', e.target.value)} />
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarAceite('Aceitar solicitação', 'acceptCancellation', disputa.id, { texto: campo('texto') })}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarResposta('Aceitar solicitação', 'acceptCancellation', disputa.id, { texto: campo('texto') })}>
                   Aceitar solicitação
                 </button>
-                <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => executar('denyCancellation', { texto: campo('texto'), idPendencia: disputa.id })}>
+                <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => confirmarResposta('Recusar solicitação', 'denyCancellation', disputa.id, { texto: campo('texto') })}>
                   Recusar
                 </button>
               </div>
               {p.plataforma === 'IFOOD' && !p.simulado && contrapropostas.length ? (
                 <div className="linha">
                   <span className="field-label">Contraproposta</span>
-                  <select className="select input-sm" style={{ width: 220 }} value={campo('alternativeId')} onChange={(e) => definir('alternativeId', e.target.value)}>
+                  <select
+                    className="select input-sm"
+                    style={{ width: 260 }}
+                    aria-label="Alternativa da contraproposta"
+                    value={campo('alternativeId')}
+                    onChange={(e) => {
+                      definir('alternativeId', e.target.value);
+                      setCampos((c) => ({ ...c, valor: '', minutos: '', motivoTempo: '' }));
+                    }}
+                  >
                     <option value="">Escolha a alternativa</option>
-                    {contrapropostas.map((a, n) => (
+                    {contrapropostas.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {CONTRAPROPOSTAS[a.type!]} ({n + 1})
+                        {CONTRAPROPOSTAS[a.tipo]}
+                        {a.valorMaximo ? ` até ${formatarMoeda(a.valorMaximo)}` : ''}
+                        {a.minutos.length ? ` (${a.minutos.join(', ')} min)` : ''}
                       </option>
                     ))}
                   </select>
-                  {alternativa?.type === 'REFUND' ? <input className="input input-sm preco" inputMode="decimal" placeholder="Valor R$" value={campo('valor')} onChange={(e) => definir('valor', e.target.value)} /> : null}
-                  {alternativa?.type === 'ADDITIONAL_TIME' ? (
+                  {alternativa?.tipo === 'REFUND' ? <input className="input input-sm preco" inputMode="decimal" placeholder="Valor R$" aria-label="Valor do reembolso" value={campo('valor')} onChange={(e) => definir('valor', e.target.value)} /> : null}
+                  {alternativa?.tipo === 'ADDITIONAL_TIME' ? (
                     <>
-                      <input className="input input-sm preco" type="number" min={1} placeholder="Minutos" value={campo('minutos')} onChange={(e) => definir('minutos', e.target.value)} />
-                      <input className="input input-sm" style={{ width: 220 }} placeholder="Motivo (código do iFood)" value={campo('motivoTempo')} onChange={(e) => definir('motivoTempo', e.target.value)} />
+                      {alternativa.minutos.length ? (
+                        <select className="select input-sm" style={{ width: 150 }} aria-label="Minutos" value={campo('minutos')} onChange={(e) => definir('minutos', e.target.value)}>
+                          <option value="">Minutos</option>
+                          {alternativa.minutos.map((m) => (
+                            <option key={m} value={m}>
+                              {m} minutos
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input className="input input-sm preco" type="number" min={1} placeholder="Minutos" value={campo('minutos')} onChange={(e) => definir('minutos', e.target.value)} />
+                      )}
+                      {alternativa.motivos.length ? (
+                        <select className="select input-sm" style={{ width: 220 }} aria-label="Motivo do tempo adicional" value={campo('motivoTempo')} onChange={(e) => definir('motivoTempo', e.target.value)}>
+                          <option value="">Motivo</option>
+                          {alternativa.motivos.map((m) => (
+                            <option key={m} value={m}>
+                              {MOTIVOS_TEMPO[m] ?? m}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input className="input input-sm" style={{ width: 220 }} placeholder="Motivo (código do iFood)" value={campo('motivoTempo')} onChange={(e) => definir('motivoTempo', e.target.value)} />
+                      )}
                     </>
                   ) : null}
                   <button
                     type="button"
                     className="btn btn-sm"
-                    disabled={ocupado || !alternativa}
-                    onClick={() => executar('counterOffer', { alternativeId: campo('alternativeId'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo'), idPendencia: disputa.id })}
+                    disabled={ocupado || !propostaPronta}
+                    onClick={() =>
+                      confirmarResposta(
+                        'Enviar contraproposta',
+                        'counterOffer',
+                        disputa.id,
+                        { alternativeId: campo('alternativeId'), valor: campo('valor'), minutos: campo('minutos'), motivoTempo: campo('motivoTempo') },
+                        resumoDaProposta,
+                      )
+                    }
                   >
                     Enviar contraproposta
                   </button>
@@ -247,6 +387,7 @@ export function ModalPedido({
                 <Prazo ate={cancelamentoCliente.expiraEm} />
               </div>
               <div>{cancelamentoCliente.motivo}</div>
+              <div className="observacao">Sem resposta em 5 minutos, a 99Food recusa o pedido de cancelamento.</div>
               <select className="select" value={campo('recusa')} onChange={(e) => definir('recusa', e.target.value)}>
                 <option value="">Motivo da recusa</option>
                 {cancelamentoCliente.motivos.map((m) => (
@@ -256,14 +397,14 @@ export function ModalPedido({
                 ))}
               </select>
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarAceite('Aceitar cancelamento', 'acceptCancellation', cancelamentoCliente.applyId)}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarResposta('Aceitar cancelamento', 'acceptCancellation', cancelamentoCliente.applyId)}>
                   Aceitar cancelamento
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm"
                   disabled={ocupado || (cancelamentoCliente.motivos.length > 0 && !campo('recusa'))}
-                  onClick={() => executar('denyCancellation', { texto: campo('recusa'), idPendencia: cancelamentoCliente.applyId })}
+                  onClick={() => confirmarResposta('Recusar cancelamento', 'denyCancellation', cancelamentoCliente.applyId, { texto: campo('recusa') })}
                 >
                   Recusar
                 </button>
@@ -278,6 +419,7 @@ export function ModalPedido({
                 <Prazo ate={reembolso.expiraEm} />
               </div>
               <div>{reembolso.motivo}</div>
+              <div className="observacao">Sem resposta em 24 horas, a 99Food aceita o reembolso.</div>
               {reembolso.imagens.length ? (
                 <div className="linha">
                   {reembolso.imagens.map((src) => (
@@ -297,14 +439,14 @@ export function ModalPedido({
               </select>
               <input className="input input-sm" placeholder="Explicação (opcional)" value={campo('explicacao')} onChange={(e) => definir('explicacao', e.target.value)} />
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarAceite('Aceitar reembolso', 'acceptRefund', reembolso.applyId)}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarResposta('Aceitar reembolso', 'acceptRefund', reembolso.applyId)}>
                   Aceitar reembolso
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm"
                   disabled={ocupado || !campo('motivoReembolso')}
-                  onClick={() => executar('denyRefund', { codigo: campo('motivoReembolso'), texto: campo('explicacao'), idPendencia: reembolso.applyId })}
+                  onClick={() => confirmarResposta('Recusar reembolso', 'denyRefund', reembolso.applyId, { codigo: campo('motivoReembolso'), texto: campo('explicacao') })}
                 >
                   Recusar reembolso
                 </button>
@@ -337,6 +479,12 @@ export function ModalPedido({
                     </button>
                   ))
                 : null}
+            </div>
+          ) : null}
+
+          {erroAcao ? (
+            <div className="banner banner-err" role="alert">
+              {erroAcao}
             </div>
           ) : null}
 

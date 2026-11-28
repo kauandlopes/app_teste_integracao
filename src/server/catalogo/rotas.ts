@@ -6,10 +6,19 @@ import type { CanalPublicacao, ResultadoCategoria } from '../../shared/tipos.js'
 import { dispensarAviso, listarAvisos } from './avisos.js';
 import { esquecerCategorias, lerCategorias } from './categorias.js';
 import { acrescentarCategoria, ajustarEspelho, atualizarEspelho, lerEspelho } from './espelho.js';
-import { normalizarProduto, ProdutoInvalido } from './produto.js';
+import { normalizarProduto, preco as lerValorDoPreco, ProdutoInvalido } from './produto.js';
 import { enfileirar, gravarProduto, listarProdutos, obterProduto, processarCatalogo } from './publicador.js';
 
 const plataformaDe = (v: unknown): CanalPublicacao => (String(v).toUpperCase() === '99FOOD' ? '99FOOD' : 'IFOOD');
+function precoRecusado(v: unknown): string {
+  try {
+    lerValorDoPreco(v, 'Preço');
+    return '';
+  } catch (err) {
+    if (!(err instanceof ProdutoInvalido)) throw err;
+    return err.message;
+  }
+}
 const falhaDoHub = (res: Response, r: RespostaHub) => res.status(r.status || 502).json({ erro: mensagemDoHub(r), resposta: r.json });
 
 export function rotasCatalogo(): Router {
@@ -39,7 +48,7 @@ export function rotasCatalogo(): Router {
     const mudanca: { preco?: number; disponivel?: boolean } = {};
     if (req.body?.preco !== undefined) {
       if (produto.tipo === 'PIZZA') return res.status(400).json({ erro: 'O preço da pizza vem dos tamanhos. Edite o produto.' });
-      mudanca.preco = Number(req.body.preco);
+      mudanca.preco = req.body.preco === null ? NaN : Number(req.body.preco);
     }
     if (typeof req.body?.disponivel === 'boolean') mudanca.disponivel = req.body.disponivel;
     if (!Object.keys(mudanca).length) return res.status(400).json({ erro: 'Informe preço ou disponível.' });
@@ -67,7 +76,7 @@ export function rotasCatalogo(): Router {
     if (typeof req.body?.disponivel === 'boolean') mudanca.disponivel = req.body.disponivel;
     if (req.body?.preco !== undefined) {
       if (opcao.acrescimoPorTamanho) return res.status(400).json({ erro: 'Este sabor tem acréscimo por tamanho. Edite o produto.' });
-      mudanca.preco = Number(req.body.preco);
+      mudanca.preco = req.body.preco === null ? NaN : Number(req.body.preco);
     }
     if (!Object.keys(mudanca).length) return res.status(400).json({ erro: 'Informe preço ou disponível.' });
     try {
@@ -138,6 +147,8 @@ export function rotasCatalogo(): Router {
     const { itemId, preco, status } = req.body ?? {};
     const plat = plataformaDe(req.body?.plataforma);
     if (!itemId) return res.status(400).json({ erro: 'Informe o item.' });
+    const recusa = preco === undefined ? '' : precoRecusado(preco);
+    if (recusa) return res.status(400).json({ erro: recusa });
     const base = '/hub/v1/conexao/catalogo/itens';
     if (preco !== undefined) {
       // iFood recebe reais em price.value; a 99Food recebe reais no campo preco (o Hub converte para centavos)
@@ -157,6 +168,8 @@ export function rotasCatalogo(): Router {
     const { optionId, groupId, preco, status } = req.body ?? {};
     const plat = plataformaDe(req.body?.plataforma);
     if (!optionId) return res.status(400).json({ erro: 'Informe a opção.' });
+    const recusa = preco === undefined ? '' : precoRecusado(preco);
+    if (recusa) return res.status(400).json({ erro: recusa });
     const base = '/hub/v1/conexao/catalogo/opcoes';
     if (preco !== undefined) {
       const corpo = plat === 'IFOOD' ? { optionId, price: { value: Number(preco) } } : { optionId, groupId, price: Number(preco) };

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AcaoDisponivel, erpApi, Fila, formatarHora, formatarMoeda, mensagemDe, nomeCanal, PedidoErp, StatusKanban } from '../api';
+import { AcaoDisponivel, ApiErro, erpApi, Fila, formatarHora, formatarMoeda, mensagemDe, nomeCanal, PedidoErp, resultadoDaAcao, StatusKanban } from '../api';
 import { IconeAtualizar } from './Icones';
 import { MenuTresPontos } from './MenuTresPontos';
-import { ModalPedido, novaIntencao, Prazo, ROTULO_MODALIDADE } from './ModalPedido';
+import { aguardaConclusaoDoIfood, ModalPedido, novaIntencao, pedeCodigoDeEntrega, Prazo, ROTULO_MODALIDADE, textoDaFalha } from './ModalPedido';
 
 const COLUNAS: Array<{ id: StatusKanban; titulo: string; pill: string }> = [
   { id: 'NOVO', titulo: 'Novos', pill: 'pill-warn' },
@@ -71,8 +71,14 @@ export function KanbanPedidos({
   const acaoDireta = (p: PedidoErp, a: AcaoDisponivel) => {
     if (a.pede) return setAberto({ id: p.id, acao: a });
     void executar(p.id, async () => {
-      await erpApi.acaoPedido(p.id, a.acao, {}, novaIntencao());
-      return `Pedido #${p.codigoCurto}: ${a.rotulo.toLowerCase()}.`;
+      try {
+        const r = await erpApi.acaoPedido(p.id, a.acao, {}, novaIntencao());
+        return `Pedido #${p.codigoCurto}: ${resultadoDaAcao(p, a.acao, a.rotulo, r.resposta)}`;
+      } catch (err) {
+        // O erro precisa dizer de qual pedido e
+        if (err instanceof ApiErro) throw new ApiErro(err.status, `Pedido #${p.codigoCurto}: ${err.message}`, err.payload);
+        throw err;
+      }
     });
   };
 
@@ -176,6 +182,22 @@ export function KanbanPedidos({
         </div>
       ) : null}
 
+      {pedidos.map((p) =>
+        p.falhaAutomatica ? (
+          <div className="banner banner-err linha" role="alert" style={{ marginBottom: 12 }} key={p.id}>
+            <span style={{ flex: 1, minWidth: 220 }}>
+              <strong>
+                Pedido #{p.codigoCurto} ({nomeCanal(p.plataforma)}).
+              </strong>{' '}
+              {textoDaFalha(p.falhaAutomatica)}
+            </span>
+            <button type="button" className="btn btn-sm" onClick={() => setAberto({ id: p.id, acao: null })}>
+              Abrir pedido
+            </button>
+          </div>
+        ) : null,
+      )}
+
       <div className="kanban-board">
         {COLUNAS.map((col) => {
           const lista = filtrados.filter((p) => (col.id === 'CONCLUIDO' ? p.statusKanban === 'CONCLUIDO' || p.statusKanban === 'CANCELADO' : p.statusKanban === col.id));
@@ -194,7 +216,7 @@ export function KanbanPedidos({
                   const prazo = cancelamentoCliente?.expiraEm ?? disputa?.expiraEm ?? reembolso?.expiraEm ?? null;
                   const pendente = !!(disputa || cancelamentoCliente || reembolso);
                   return (
-                    <div key={p.id} className={`order-card${pendente ? ' alerta' : ''}${p.statusKanban === 'CANCELADO' ? ' cancelado' : ''}`} onClick={() => setAberto({ id: p.id, acao: null })}>
+                    <div key={p.id} className={`order-card${pendente || p.falhaAutomatica || p.semDados.length ? ' alerta' : ''}${p.statusKanban === 'CANCELADO' && !p.arquivado ? ' cancelado' : ''}`} onClick={() => setAberto({ id: p.id, acao: null })}>
                       <div className="order-card-head">
                         <span className="order-code">#{p.codigoCurto}</span>
                         <span className="suave">{formatarHora(p.criadoEm)}</span>
@@ -203,7 +225,10 @@ export function KanbanPedidos({
                         <span className="pill">{nomeCanal(p.plataforma)}</span>
                         <span className="pill">{ROTULO_MODALIDADE[p.modalidade]}</span>
                         {p.simulado ? <span className="pill pill-info">Simulado</span> : null}
-                        {p.statusKanban === 'CANCELADO' ? <span className="pill pill-err">Cancelado</span> : null}
+                        {p.arquivado ? <span className="pill pill-warn">Arquivado</span> : p.statusKanban === 'CANCELADO' ? <span className="pill pill-err">Cancelado</span> : null}
+                        {p.falhaAutomatica ? <span className="pill pill-err">{p.falhaAutomatica.acao === 'confirm' ? 'Aceite automático falhou' : 'Preparo automático falhou'}</span> : null}
+                        {p.semDados.length ? <span className="pill pill-err">Responder no portal</span> : null}
+                        {pedeCodigoDeEntrega(p) ? <span className="pill pill-warn">Pede código de entrega</span> : null}
                         {p.statusKanban === 'NOVO' ? <Espera desde={p.criadoEm} /> : null}
                         {cancelamentoCliente ? <span className="pill pill-err">Cliente quer cancelar</span> : null}
                         {disputa ? <span className="pill pill-err">Disputa</span> : null}
@@ -217,6 +242,7 @@ export function KanbanPedidos({
                         <div className="suave">{p.endereco}</div>
                         {p.entregador ? <div className="suave">Entregador: {p.entregador.nome}</div> : null}
                         {p.etapaEntrega ? <div className="suave">{p.etapaEntrega}</div> : null}
+                        {aguardaConclusaoDoIfood(p) ? <div className="suave">Aguardando o iFood concluir</div> : null}
                       </div>
                       <div className="order-items-preview">
                         {p.detalhePendente ? <div>Carregando itens...</div> : null}

@@ -16,6 +16,8 @@ import type {
 } from '../shared/tipos';
 
 export * from '../shared/tipos';
+export * from '../shared/disputa';
+export * from '../shared/preco';
 
 const BASE = '/erp-simulador/api';
 
@@ -109,9 +111,9 @@ const id = encodeURIComponent;
 
 export const erpApi = {
   sessao: () => req<Sessao>('/sessao'),
-  entrar: (baseUrl: string, tokenIntegracao: string) => req('/entrar', 'POST', { baseUrl, tokenIntegracao }),
+  entrar: (baseUrl: string, tokenIntegracao: string, confirmarTroca = false) => req('/entrar', 'POST', { baseUrl, tokenIntegracao, confirmarTroca }),
   sair: (limparDados = false) => req(`/sair${limparDados ? '?limparDados=true' : ''}`, 'POST'),
-  conectarCnpj: (dados: { cnpj: string; nome: string; transporte: 'PULL' | 'PUSH'; webhookUrl?: string }) => req('/conectar-cnpj', 'POST', dados),
+  conectarCnpj: (dados: { cnpj: string; nome: string; transporte: 'PULL' | 'PUSH'; webhookUrl?: string; confirmarTroca?: boolean }) => req('/conectar-cnpj', 'POST', dados),
   recuperarToken: () => req('/recuperar-token', 'POST'),
   rotacionarSegredo: () => req('/webhook/segredo/rotacionar', 'POST'),
   credenciais: () => req<Credenciais>('/credenciais'),
@@ -140,7 +142,7 @@ export const erpApi = {
   motivos: (pedido: string) => req<MotivoCancelamento[]>(`/pedidos/${id(pedido)}/motivos`),
   subrecursoPedido: (pedido: string, tipo: 'rastreio' | 'sacola') => req<any>(`/pedidos/${id(pedido)}/subrecurso?tipo=${tipo}`),
   /** intencao identifica o clique: repetir a mesma nao duplica o comando na plataforma. */
-  acaoPedido: (pedido: string, acao: string, dados: Record<string, unknown>, intencao: string) => req(`/pedidos/${id(pedido)}/acao`, 'POST', { acao, dados, intencao }),
+  acaoPedido: (pedido: string, acao: string, dados: Record<string, unknown>, intencao: string) => req<{ ok: boolean; resposta?: any }>(`/pedidos/${id(pedido)}/acao`, 'POST', { acao, dados, intencao }),
   ajustarPedido: (pedido: string, dados: { observacaoErp?: string; statusKanban?: StatusKanban }) => req(`/pedidos/${id(pedido)}`, 'PATCH', dados),
 
   // Cardapio do ERP
@@ -200,7 +202,14 @@ export function formatarHora(iso: string): string {
   return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-export const nomeCanal = (c: string) => (c === 'IFOOD' ? 'iFood' : c === '99FOOD' ? '99Food' : 'Delivery');
+/** O pedido de troca de conexao precisa da confirmacao do operador. */
+export const pedeConfirmacaoDeTroca = (err: unknown): err is ApiErro => err instanceof ApiErro && err.payload?.codigo === 'CONFIRMAR_TROCA';
 
-/** Aceita "1.234,50", "12,5" e "12.5". */
-export const lerPreco = (texto: string) => Number(texto.includes(',') ? texto.replace(/\./g, '').replace(',', '.') : texto);
+/** Texto do aviso depois de uma acao: so diz que a plataforma recebeu quando ela recebeu. */
+export function resultadoDaAcao(p: PedidoErp, acao: string, rotulo: string, resposta: any): string {
+  if (!p.simulado && (resposta?.localOnly === true || resposta?.implicit === true || resposta?.implicito === true)) return `${rotulo}: registrado somente no ERP. A plataforma não foi avisada.`;
+  if (acao === 'validatePickupCode' || acao === 'verifyDeliveryCode') return 'Código confirmado pela plataforma.';
+  return `${rotulo}: enviado.`;
+}
+
+export const nomeCanal = (c: string) => (c === 'IFOOD' ? 'iFood' : c === '99FOOD' ? '99Food' : 'Delivery');

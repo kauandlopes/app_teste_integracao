@@ -263,3 +263,16 @@ test('formato da pizza no iFood so e enviado quando for a nativa', async () => {
   const enviados = a.chamadasDe('POST', /catalogo\/produtos$/).map((c) => [c.corpo.codigo, c.corpo.formatoIfood]);
   assert.deepEqual(enviados, [['F1', undefined], ['F2', 'PIZZA']]);
 });
+
+test('preco com tres casas, texto ou numero invalido sao recusados com a mensagem certa', async () => {
+  for (const [preco, mensagem] of [['10,999', /duas casas decimais/], [10.999, /duas casas decimais/], ['abc', /preço inválido/], [null, /preço inválido/]] as const) {
+    const r = await a.erp('PUT', '/catalogo/produtos', { nome: 'Suco', categoria: 'Bebidas', preco });
+    assert.equal(r.status, 400, String(preco));
+    assert.match(r.json.erro, mensagem);
+  }
+  const salvo = await a.erp('PUT', '/catalogo/produtos', { nome: 'Suco', categoria: 'Bebidas', preco: '1.234,50' });
+  assert.equal(salvo.json.produto.preco, 1234.5);
+  assert.equal((await a.erp('PATCH', `/catalogo/produtos/${salvo.json.produto.codigo}`, { preco: null })).status, 400);
+  assert.equal((await a.erp('PATCH', '/catalogo/plataformas/itens', { plataforma: 'IFOOD', itemId: 'B', preco: 10.999 })).status, 400);
+  assert.equal(a.chamadasDe('PATCH', /itens\/preco/).length, 0);
+});

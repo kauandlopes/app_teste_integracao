@@ -29,6 +29,8 @@ const O_QUE_FAZER: Record<string, string> = {
   VINCULO_NAO_ATIVO: 'Fale com a Target: o vínculo desta conexão não está ativo.',
   IFOOD_PAUSA_JA_EXISTE: 'Em "Dados da loja", use "Abrir" antes de criar outra pausa.',
   CATEGORIA_JA_EXISTE: 'Escolha outro nome.',
+  COMANDO_RESULTADO_INCERTO: 'A ação pode ter sido executada: confira o pedido antes de repetir.',
+  COMANDO_EM_ANDAMENTO: 'Aguarde alguns segundos e confira o pedido.',
 };
 
 export function mensagemDoHub(r: { status: number; json: unknown; text: string; retryAfterS?: number }): string {

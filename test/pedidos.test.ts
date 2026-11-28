@@ -312,3 +312,154 @@ test('reconectar a mesma empresa mantem o segredo atual do webhook', async () =>
   assert.equal((await a.erp('POST', '/conectar-cnpj', { cnpj: '11111111000191', transporte: 'PUSH' })).status, 200);
   assert.equal(a.banco.obterConfig().webhookSegredo, 'segredo-teste');
 });
+
+const forcarRepeticao = async (id: string) => {
+  const repo = await import('../src/server/pedidos/repositorio.js');
+  const p = repo.obterPedido(id)!;
+  p.estado.falhaAutomatica!.proximaEm = Date.now() - 1;
+  repo.salvarPedido(p);
+  await proc.repetirAutomaticos();
+};
+
+test('aceite automatico repete apos 503 dentro do prazo e a falha fica no pedido ate aceitar', async () => {
+  detalhe();
+  await a.erp('PUT', '/ajustes', { aceiteAutomatico: true });
+  let falhar = true;
+  a.quando('POST', /\/acao$/, () => (falhar ? { status: 503, json: { codigo: 'HUB_INDISPONIVEL', erro: 'fora do ar' } } : { json: { ok: true } }));
+  await chegar('r1');
+  let p = await obter('r1');
+  assert.equal(p.statusKanban, 'NOVO');
+  assert.equal(p.codigoCurto, '4821');
+  assert.equal(p.falhaAutomatica.tentativas, 1);
+  assert.ok(p.falhaAutomatica.proximaEm);
+  assert.equal(new Date(p.falhaAutomatica.limiteEm).getTime() - new Date(p.criadoEm).getTime(), 8 * 60_000);
+  await proc.repetirAutomaticos();
+  assert.equal(enviadas().length, 1, 'espera o horario da proxima tentativa');
+  await forcarRepeticao('r1');
+  assert.equal((await obter('r1')).falhaAutomatica.tentativas, 2);
+  assert.equal((await obter('r1')).avisos.filter((x: any) => /Aceite automático falhou/.test(x.texto)).length, 1);
+  falhar = false;
+  await forcarRepeticao('r1');
+  p = await obter('r1');
+  assert.equal(p.falhaAutomatica, null);
+  assert.equal(p.preparoIniciado, true);
+  assert.deepEqual(enviadas().map((c) => c.acao), ['confirm', 'confirm', 'confirm', 'startPreparation']);
+  const chaves = a.chamadasDe('POST', /\/acao$/).map((c) => c.headers['idempotency-key']);
+  assert.equal(chaves[0], chaves[2], 'falha de servidor repete com a mesma chave');
+});
+
+test('aceite automatico desiste em recusa definitiva e ao fim do prazo, mantendo o aviso', async () => {
+  detalhe({ canal: '99FOOD' });
+  await a.erp('PUT', '/ajustes', { aceiteAutomatico: true });
+  a.quando('POST', /\/acao$/, () => ({ status: 400, json: { codigo: 'PLATAFORMA_ERRNO_20001', erro: 'recusado' } }));
+  await chegar99('r2', 'orderNew', '{}');
+  const p = await obter('r2');
+  assert.equal(p.falhaAutomatica.proximaEm, null);
+  assert.equal(new Date(p.falhaAutomatica.limiteEm).getTime() - new Date(p.criadoEm).getTime(), 5 * 60_000);
+
+  a.quando('POST', /\/acao$/, () => ({ status: 400, json: { codigo: 'PLATAFORMA_HTTP_503', erro: 'plataforma fora' } }));
+  await a.webhook({ plataforma: '99FOOD', tipo: 'orderNew', pedido: 'r3', corpo: `{"type":"orderNew","timestamp":${Math.floor(Date.now() / 1000) - 400},"data":{}}` });
+  detalhe({ canal: '99FOOD', criadoEm: new Date(Date.now() - 400_000).toISOString() });
+  await proc.processarFila();
+  const vencido = await obter('r3');
+  assert.equal(vencido.falhaAutomatica.tentativas, 1);
+  assert.equal(vencido.falhaAutomatica.proximaEm, null, 'depois do prazo nao repete');
+});
+
+test('codigo de entrega pedido vira a acao principal e codigo errado e recusado', async () => {
+  detalhe();
+  await chegar('c1', 'DISPATCHED', 'DSP');
+  let p = await obter('c1');
+  assert.equal(p.acoes.some((x: any) => x.acao === 'conclude' || x.tipo === 'principal'), false);
+  assert.equal((await acao('c1', 'conclude')).status, 409);
+  await chegar('c1', 'DELIVERY_DROP_CODE_REQUESTED', 'DDCR');
+  p = await obter('c1');
+  assert.deepEqual(p.acoes.filter((x: any) => x.tipo === 'principal').map((x: any) => x.acao), ['verifyDeliveryCode']);
+  for (const resposta of [{ json: { success: false } }, { status: 422, json: { codigo: 'CODIGO_INVALIDO', erro: 'x' } }]) {
+    a.quando('POST', /\/acao$/, () => resposta);
+    const r = await acao('c1', 'verifyDeliveryCode', { codigo: '0000' });
+    assert.equal(r.status, 422);
+    assert.match(r.json.erro, /Código incorreto/);
+    assert.equal((await obter('c1')).codigoEntrega, 'PEDIDO');
+  }
+  a.quando('POST', /\/acao$/, () => ({ json: { success: true } }));
+  assert.equal((await acao('c1', 'verifyDeliveryCode', { codigo: '1234' })).status, 200);
+  p = await obter('c1');
+  assert.equal(p.codigoEntrega, 'CONFIRMADO');
+  assert.equal(p.statusKanban, 'ENTREGA', 'so o evento da plataforma conclui');
+  await chegar('c1', 'CONCLUDED', 'CON');
+  assert.equal((await obter('c1')).statusKanban, 'CONCLUIDO');
+});
+
+test('conclusao sem confirmacao da plataforma nao marca o pedido como concluido', async () => {
+  detalhe({ canal: '99FOOD' });
+  await chegar99('c2', 'orderNew', '{}');
+  await acao('c2', 'confirm');
+  await acao('c2', 'readyToPickup');
+  a.quando('POST', /\/acao$/, () => ({ json: { ok: true, etapa: 'AGUARDANDO_PLATAFORMA', implicit: true } }));
+  assert.equal((await acao('c2', 'conclude')).status, 200);
+  assert.equal((await obter('c2')).statusKanban, 'PRONTO');
+});
+
+test('preparo agendado repete apos limite de chamadas', async () => {
+  detalhe({ bruto: { orderTiming: 'SCHEDULED', preparationStartDateTime: new Date(Date.now() - 1000).toISOString() } });
+  await chegar('c3', 'CONFIRMED', 'CFM');
+  let falhar = true;
+  a.quando('POST', /\/acao$/, () => (falhar ? { status: 429, json: { codigo: 'LIMITE_DA_INSTALACAO', erro: 'limite' } } : { json: { ok: true } }));
+  await proc.iniciarAgendados();
+  assert.ok((await obter('c3')).falhaAutomatica.proximaEm);
+  falhar = false;
+  await forcarRepeticao('c3');
+  assert.equal((await obter('c3')).preparoIniciado, true);
+});
+
+test('reconciliacao sem corpo avisa, pede o reenvio ao Hub e o webhook completa a solicitacao', async () => {
+  detalhe({ canal: '99FOOD' });
+  const em = new Date(Date.now() - 120_000).toISOString();
+  a.quando('GET', /\/conexao\/pedidos$/, () => ({ json: [{ plataforma: '99FOOD', pedidoId: 'c4', eventos: [{ seq: 70, tipo: 'orderCancelApply', em }] }] }));
+  await proc.reconciliar();
+  assert.equal(a.chamadasDe('GET', /\/conexao\/pedidos$/)[0].query.get('limite'), '100');
+  assert.equal(a.chamadasDe('POST', /\/entregas\/reprocessar$/).length, 1);
+  assert.equal((await obter('c4')).semDados.length, 1);
+  await a.webhook({ plataforma: '99FOOD', tipo: 'orderCancelApply', pedido: 'c4', seq: 70, corpo: `{"type":"orderCancelApply","timestamp":${Math.floor(Date.now() / 1000)},"data":{"apply_id":88}}` });
+  await proc.processarFila();
+  const p = await obter('c4');
+  assert.equal(p.semDados.length, 0);
+  assert.equal(p.pendencias.cancelamentoCliente.applyId, '88');
+});
+
+test('disputa traz evidencias e a contraproposta respeita o maximo e as casas decimais', async () => {
+  detalhe();
+  await chegar('c5', 'HANDSHAKE_DISPUTE', 'HSD', { disputeId: 'd5', timeoutAction: 'REJECT_CANCELLATION', metadata: { evidences: [{ url: 'https://exemplo.invalid/foto.jpg', contentType: 'image/jpeg' }, { url: 'javascript:alert(1)' }] }, alternatives: [{ id: 'a1', type: 'REFUND', metadata: { maxAmount: { value: '5000', currency: 'BRL' } } }] });
+  const { disputa } = (await obter('c5')).pendencias;
+  assert.equal(disputa.aoExpirar, 'REJECT_CANCELLATION');
+  assert.equal(disputa.evidencias.length, 1);
+  assert.equal((await acao('c5', 'counterOffer', { alternativeId: 'a1', valor: '60' })).status, 400);
+  assert.equal((await acao('c5', 'counterOffer', { alternativeId: 'a1', valor: '10,999' })).status, 400);
+  assert.equal(enviadas().length, 0);
+});
+
+test('trocar de CNPJ com pedido em aberto exige confirmacao e arquiva sem chamar de cancelado', async () => {
+  detalhe();
+  await chegar('c6');
+  const corpo = { cnpj: '22222222000191', transporte: 'PUSH' };
+  const r = await a.erp('POST', '/conectar-cnpj', corpo);
+  assert.equal(r.status, 409);
+  assert.equal(r.json.codigo, 'CONFIRMAR_TROCA');
+  assert.equal(a.chamadasDe('POST', /conectar$/).length, 0);
+  assert.equal((await obter('c6')).statusKanban, 'NOVO');
+  a.quando('POST', /\/integracao\/conectar$/, () => ({ status: 201, json: { conexaoId: 'conexao-9', cnpj: '22222222000191', transporte: { modo: 'PUSH', url: 'https://delivery.targetx.com.br/erp-simulador/api/webhook' }, lojas: [], credenciais: { token: 'hubi_9', webhookSegredo: 's9' } } }));
+  assert.equal((await a.erp('POST', '/conectar-cnpj', { ...corpo, confirmarTroca: true })).status, 201);
+  assert.equal((await obter('c6')).arquivado, true);
+  a.banco.atualizarConfig({ cnpj: '11111111000191', conexaoId: 'conexao-1', tokenConexao: 'hubi_teste', webhookSegredo: 'segredo-teste' });
+});
+
+test('pedido simulado apagado nao volta pela reconciliacao', async () => {
+  const corpo = { id: 's', tipo: 'PLACED', pedido: pedidoUnificado('simhub-9') };
+  await a.webhook({ plataforma: 'IFOOD', tipo: 'PLACED', pedido: 'simhub-9', corpo, seq: 80 });
+  await proc.processarFila();
+  await a.erp('DELETE', '/pedidos/simulacoes');
+  a.quando('GET', /\/conexao\/pedidos$/, () => ({ json: [{ plataforma: 'IFOOD', pedidoId: 'simhub-9', eventos: [{ seq: 80, tipo: 'PLACED', em: new Date(Date.now() - 120_000).toISOString() }] }] }));
+  assert.equal(await proc.reconciliar(), 0);
+  assert.equal(await obter('simhub-9'), undefined);
+});

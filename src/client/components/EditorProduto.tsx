@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { erpApi, formatarMoeda, lerPreco, ListaCategorias, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
+import { casasDemais, erpApi, formatarMoeda, lerPreco, ListaCategorias, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
 import { chaveCategoria, ondeExiste, soSecaoDePizza } from '../../shared/categorias';
 import { useDescarte } from './Comuns';
 import { IconeFechar } from './Icones';
@@ -74,10 +74,19 @@ const saborNovo = (): Sabor => ({ nome: '', acrescimo: '0', porTamanho: {}, disp
 const grupoNovo = (combo: boolean): Grupo => ({ nome: '', min: combo ? '1' : '0', max: '1', opcoes: [opcaoVazia()] });
 
 const paraTexto = (p?: PrecosPlataforma): Precos => Object.fromEntries(Object.entries(p ?? {}).map(([k, v]) => [k, dinheiro(v)]));
+/** Texto que nao e numero segue como foi digitado: o servidor recusa e diz em qual campo. */
+const valorDigitado = (texto: string): number => {
+  const n = lerPreco(texto);
+  return Number.isFinite(n) ? n : (texto as unknown as number);
+};
+const precoValido = (texto: string) => {
+  const n = lerPreco(texto || '0');
+  return Number.isFinite(n) && !casasDemais(n);
+};
 /** So as plataformas preenchidas; nenhuma preenchida significa nao enviar o campo. */
 function precosPreenchidos(ligado: boolean, precos: Precos): { precosPlataforma?: PrecosPlataforma } {
   if (!ligado) return {};
-  const lista = PLATAFORMAS_PRECO.filter((k) => precos[k]?.trim()).map((k) => [k, lerPreco(precos[k]!)]);
+  const lista = PLATAFORMAS_PRECO.filter((k) => precos[k]?.trim()).map((k) => [k, valorDigitado(precos[k]!)]);
   return lista.length ? { precosPlataforma: Object.fromEntries(lista) as PrecosPlataforma } : {};
 }
 
@@ -137,14 +146,14 @@ function paraForm(p: ProdutoErp | null, tipo: ProdutoErp['tipo']): Form {
 
 function paraProduto(f: Form) {
   const precos = (v: Precos) => precosPreenchidos(f.porPlataforma, v);
-  const opcao = (o: Opcao) => ({ codigo: o.codigo, nome: o.nome, preco: lerPreco(o.preco || '0'), disponivel: o.disponivel, ...precos(o.precos) });
+  const opcao = (o: Opcao) => ({ codigo: o.codigo, nome: o.nome, preco: valorDigitado(o.preco || '0'), disponivel: o.disponivel, ...precos(o.precos) });
   return {
     codigo: f.codigo.trim(),
     nome: f.nome,
     categoria: f.categoria,
     descricao: f.descricao,
     tipo: f.tipo,
-    preco: lerPreco(f.preco || '0'),
+    preco: valorDigitado(f.preco || '0'),
     ...(f.tipo === 'PIZZA' ? {} : precos(f.precos)),
     disponivel: f.disponivel,
     foto: f.foto,
@@ -153,15 +162,15 @@ function paraProduto(f: Form) {
     pizza:
       f.tipo === 'PIZZA'
         ? {
-            tamanhos: f.tamanhos.map((t) => ({ codigo: t.codigo, nome: t.nome, preco: lerPreco(t.preco || '0'), pedacos: Number(t.pedacos) || undefined, maxSabores: Number(t.maxSabores) || 1, disponivel: t.disponivel, ...precos(t.precos) })),
+            tamanhos: f.tamanhos.map((t) => ({ codigo: t.codigo, nome: t.nome, preco: valorDigitado(t.preco || '0'), pedacos: Number(t.pedacos) || undefined, maxSabores: Number(t.maxSabores) || 1, disponivel: t.disponivel, ...precos(t.precos) })),
             sabores: f.sabores.map((s) => ({
               codigo: s.codigo,
               nome: s.nome,
-              acrescimo: lerPreco(s.acrescimo || '0'),
+              acrescimo: valorDigitado(s.acrescimo || '0'),
               disponivel: s.disponivel,
               ...precos(s.precos),
               ...(f.precoPorTamanho
-                ? { acrescimoPorTamanho: Object.fromEntries(f.tamanhos.map((t) => [t.codigo, lerPreco(s.porTamanho[t.codigo] ?? s.acrescimo ?? '0')])) }
+                ? { acrescimoPorTamanho: Object.fromEntries(f.tamanhos.map((t) => [t.codigo, valorDigitado(s.porTamanho[t.codigo] ?? s.acrescimo ?? '0')])) }
                 : {}),
             })),
             massas: f.massas.map(opcao),
@@ -362,7 +371,7 @@ export function EditorProduto({
     produto && alterado
       ? [
           f.nome !== produto.nome && `nome ${produto.nome} → ${f.nome}`,
-          !ehPizza && lerPreco(f.preco || '0') !== produto.preco && `preço ${formatarMoeda(produto.preco)} → ${formatarMoeda(lerPreco(f.preco || '0'))}`,
+          !ehPizza && lerPreco(f.preco || '0') !== produto.preco && `preço ${formatarMoeda(produto.preco)} → ${precoValido(f.preco) ? formatarMoeda(lerPreco(f.preco || '0')) : `"${f.preco}" (inválido)`}`,
           f.categoria !== produto.categoria && `categoria ${produto.categoria} → ${f.categoria}`,
           f.disponivel !== produto.disponivel && (f.disponivel ? 'pausado → disponível' : 'disponível → pausado'),
         ].filter(Boolean)

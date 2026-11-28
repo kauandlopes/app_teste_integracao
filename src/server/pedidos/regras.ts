@@ -11,6 +11,7 @@ export interface SituacaoPedido {
   statusKanban: StatusKanban;
   modalidade: Modalidade;
   preparoIniciado: boolean;
+  codigoEntrega: 'PEDIDO' | 'CONFIRMADO' | null;
   cancelamentoEmAnalise: boolean;
   pagamentoNaEntrega: boolean;
   temItensAjustaveis: boolean;
@@ -45,11 +46,12 @@ export function acoesDisponiveis(p: SituacaoPedido): AcaoDisponivel[] {
     }
     if (s === 'PRONTO') {
       if (propria) add('dispatch', 'Despachar', 'principal', 'entregadorOpcional');
-      if (noLocal) add('conclude', p.modalidade === 'MESA' ? 'Concluir' : 'Cliente retirou', 'principal');
+      // O iFood nao recebe a conclusao pela loja: o botao so existe no simulador do Hub. No real vale o evento CONCLUDED
+      if (noLocal && simulado) add('conclude', p.modalidade === 'MESA' ? 'Concluir' : 'Cliente retirou', 'principal');
     }
     if (s === 'ENTREGA' && propria) {
-      add('conclude', 'Concluir entrega', 'principal');
-      add('updateCourier', 'Trocar entregador', 'secundaria', 'entregador');
+      if (simulado) add('conclude', 'Concluir entrega', 'principal');
+      add('updateCourier', 'Trocar entregador no ERP', 'secundaria', 'entregador');
     }
     if ((daPlataforma && s !== 'NOVO') || (noLocal && s === 'PRONTO')) add('validatePickupCode', 'Validar código de coleta', 'avancada', 'codigo');
     if (propria && s !== 'NOVO') {
@@ -57,7 +59,7 @@ export function acoesDisponiveis(p: SituacaoPedido): AcaoDisponivel[] {
       add('goingToOrigin', 'Entregador a caminho da loja', 'avancada');
       add('arrivedAtOrigin', 'Entregador chegou na loja', 'avancada');
       add('arrivedAtDestination', 'Entregador chegou no cliente', 'avancada');
-      add('verifyDeliveryCode', 'Validar código de entrega', 'avancada', 'codigo');
+      if (p.codigoEntrega !== 'CONFIRMADO') add('verifyDeliveryCode', 'Validar código de entrega', s === 'ENTREGA' && p.codigoEntrega === 'PEDIDO' ? 'principal' : 'avancada', 'codigo');
     }
   } else {
     if (s === 'PREPARO') {

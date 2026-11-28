@@ -1,6 +1,6 @@
 import { acompanharProcessamento, processarCatalogo } from './catalogo/publicador.js';
 import { atualizarEstadoConexao, registrarLog } from './hubClient.js';
-import { iniciarAgendados, limparEventosAntigos, processarFila, puxarEventos, reconciliar } from './pedidos/processador.js';
+import { iniciarAgendados, limparEventosAntigos, processarFila, puxarEventos, reconciliar, repetirAutomaticos } from './pedidos/processador.js';
 
 /** Tarefas periodicas. Cada uma se protege contra execucao simultanea. */
 export function iniciarWorkers() {
@@ -20,6 +20,7 @@ export function iniciarWorkers() {
   repetir('fila de eventos', 2, () => void processarFila());
   repetir('reconciliacao', 90, reconciliar);
   repetir('pedidos agendados', 30, iniciarAgendados);
+  repetir('aceite automático', 3, () => void repetirAutomaticos());
   repetir('publicação do cardápio', 3, processarCatalogo);
   repetir('resultado da publicação', 15, acompanharProcessamento);
   repetir('estado da conexão', 60, atualizarEstadoConexao);

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { atualizarConfig, db, obterConfig } from '../db.js';
 import { atualizarEstadoConexao, hubFetch, lerJson, mensagemDoHub, RespostaHub } from '../hubClient.js';
 import { limparEspelho } from '../catalogo/espelho.js';
-import { conexaoEncerrada, descartarConexaoAnterior, semLojaAtiva, tokenRecusado } from './estado.js';
+import { conexaoEncerrada, descartarConexaoAnterior, pedidosAbertos, semLojaAtiva, tokenRecusado } from './estado.js';
 
 export const WEBHOOK_PADRAO = 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
 const BASE_PADRAO = 'https://delivery.targetx.com.br/api/v1';
@@ -18,6 +18,18 @@ const repassar = (res: Response, r: RespostaHub) => (r.ok ? res.status(r.status)
  */
 function gerarTokenDaConexao(conexaoId: string) {
   return hubFetch<{ conexaoId: string; token: string }>(`/hub/v1/conexoes/${encodeURIComponent(conexaoId)}/token`, { metodo: 'POST', tokenTipo: 'integrador' });
+}
+
+/** Trocar de empresa ou de integrador arquiva os pedidos em aberto: so com a confirmacao do operador. */
+function pedirConfirmacaoDaTroca(res: Response) {
+  const abertos = pedidosAbertos();
+  if (!abertos) return false;
+  res.status(409).json({
+    codigo: 'CONFIRMAR_TROCA',
+    abertos,
+    erro: `Há ${abertos} pedido(s) em aberto nesta conexão. Ao trocar, eles são arquivados neste ERP e continuam valendo na plataforma.`,
+  });
+  return true;
 }
 
 export function rotasConexao(): Router {
@@ -58,6 +70,7 @@ export function rotasConexao(): Router {
 
     const cur = obterConfig();
     const outroIntegrador = !!cur.integradorCodigo && cur.integradorCodigo !== r.json.integrador.codigo;
+    if (outroIntegrador && req.body?.confirmarTroca !== true && pedirConfirmacaoDaTroca(res)) return;
     atualizarConfig({ baseUrl, tokenIntegracao, integradorCodigo: r.json.integrador.codigo, ...(outroIntegrador ? SEM_CONEXAO : {}) });
     if (outroIntegrador) descartarConexaoAnterior('');
     res.json({ ok: true, integrador: r.json.integrador, conectado: !!obterConfig().tokenConexao });
@@ -80,6 +93,9 @@ export function rotasConexao(): Router {
     const nome = String(req.body?.nome ?? '').trim() || `Loja ${cnpj}`;
     const transporte = req.body?.transporte === 'PULL' ? 'PULL' : 'PUSH';
     const webhookUrl = String(req.body?.webhookUrl || WEBHOOK_PADRAO).trim();
+    // Antes de falar com o Hub: cancelar a troca nao deixa nada pela metade
+    const anterior = obterConfig().cnpj;
+    if (anterior && anterior.replace(/\D/g, '') !== cnpj && req.body?.confirmarTroca !== true && pedirConfirmacaoDaTroca(res)) return;
 
     const r = await hubFetch<any>('/hub/v1/integracao/conectar', {
       metodo: 'POST',
