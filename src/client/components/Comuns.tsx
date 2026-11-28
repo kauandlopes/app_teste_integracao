@@ -21,6 +21,7 @@ export function Confirmacao({
   aviso = 'A mudança vale na loja real e tem efeito imediato.',
   perigo,
   ocupado,
+  bloqueado,
   outra,
   aoConfirmar,
   aoCancelar,
@@ -33,6 +34,8 @@ export function Confirmacao({
   aviso?: string;
   perigo?: boolean;
   ocupado?: boolean;
+  /** Confirmar fica desabilitado sem trocar o rotulo (ex.: espera pedida pela plataforma). */
+  bloqueado?: boolean;
   /** Segunda forma de concluir, quando ha duas. */
   outra?: { rotulo: string; aoClicar: () => void };
   aoConfirmar: () => void;
@@ -58,7 +61,7 @@ export function Confirmacao({
               {outra.rotulo}
             </button>
           ) : null}
-          <button type="button" className={`btn ${perigo ? 'btn-danger' : 'btn-primary'}`} disabled={ocupado} onClick={aoConfirmar}>
+          <button type="button" className={`btn ${perigo ? 'btn-danger' : 'btn-primary'}`} disabled={ocupado || bloqueado} onClick={aoConfirmar}>
             {ocupado ? 'Enviando...' : confirmar}
           </button>
         </div>

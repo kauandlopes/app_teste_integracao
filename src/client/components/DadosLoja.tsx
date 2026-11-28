@@ -66,6 +66,20 @@ const dataHora = (v?: string | null) => (v ? v.replace(/^\d{4}-(\d\d)-(\d\d)T(\d
 /** Sem nenhum sucesso o Hub responde com erro e o mesmo detalhe por plataforma. */
 const plataformasDoErro = (err: unknown) => (err instanceof ApiErro ? err.payload?.detalhes?.plataformas : undefined);
 
+/** Ate quando a 99Food pede o intervalo entre chamadas da mesma loja: uma leitura e uma escrita por minuto. */
+const ESPERA_99_MS = 65_000;
+let liberaEm99 = 0;
+
+/** Re-renderiza a cada segundo enquanto houver espera, para os botoes voltarem sozinhos. */
+function useRelogio(ativo: boolean) {
+  const [, forcar] = useState(0);
+  useEffect(() => {
+    if (!ativo) return;
+    const t = setInterval(() => forcar((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [ativo]);
+}
+
 function AvisoErro({ erro }: { erro: ErroLoja }) {
   return (
     <div className="observacao">
@@ -213,7 +227,7 @@ function useEnvio(notificar: Notificar) {
       return novas;
     });
   }
-  async function enviar(chamada: () => Promise<ResultadoLoja>): Promise<ResultadoLoja | null> {
+  async function enviar(chamada: () => Promise<ResultadoLoja>, plataformas: CanalPublicacao[]): Promise<ResultadoLoja | null> {
     setEnviando(true);
     setErro('');
     setResultado(null);
@@ -224,16 +238,23 @@ function useEnvio(notificar: Notificar) {
       else notificar('ok', 'Alteração enviada. Veja o resultado por plataforma.');
       return r;
     } catch (err) {
-      const mensagem = mensagemDe(err, 'Não foi possível enviar. Consulte a loja antes de repetir.');
+      const mensagem = mensagemDe(err, `Não foi possível enviar (${err instanceof Error ? err.message : 'sem resposta'}). Consulte a loja antes de repetir.`);
       const plataformas = plataformasDoErro(err);
       if (plataformas) receber({ plataformas });
       setErro(mensagem);
       notificar('erro', mensagem);
       return null;
     } finally {
+      if (plataformas.includes('99FOOD')) liberaEm99 = Math.max(liberaEm99, Date.now() + ESPERA_99_MS);
       setEnviando(false);
     }
   }
+  /** Bloqueia o envio enquanto a plataforma pede espera (429) ou a 99Food ainda esta no intervalo de 1 minuto. */
+  const esperando = (plats: CanalPublicacao[]) => {
+    const agora = Date.now();
+    return plats.some((p) => (esperas[p] ?? 0) > agora || (p === '99FOOD' && liberaEm99 > agora));
+  };
+  useRelogio(Object.values(esperas).some((v) => (v ?? 0) > Date.now()) || liberaEm99 > Date.now());
   /** Aviso no dialogo de confirmacao enquanto a plataforma escolhida ainda pede espera. */
   const avisoDeEspera = (plataformas: CanalPublicacao[]) =>
     plataformas.map((p) => {
@@ -244,7 +265,7 @@ function useEnvio(notificar: Notificar) {
         </span>
       ) : null;
     });
-  return { resultado, erro, setErro, enviando, enviar, avisoDeEspera };
+  return { resultado, erro, setErro, enviando, enviar, avisoDeEspera, esperando };
 }
 
 function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: PropsFormulario & { aoConcluir: () => void }) {
@@ -255,7 +276,7 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
   const [acrescimo, setAcrescimo] = useState('15');
   const [automatica, setAutomatica] = useState(true);
   const [pendente, setPendente] = useState<{ comando: ComandoLoja; plataformas: CanalPublicacao[] } | null>(null);
-  const { resultado, erro, setErro, enviando, enviar, avisoDeEspera } = useEnvio(notificar);
+  const { resultado, erro, setErro, enviando, enviar, avisoDeEspera, esperando } = useEnvio(notificar);
 
   const selecionadas = alvo === 'TODAS' ? ativas : [alvo];
   const permite = (p: CanalPublicacao, a: AcaoLoja) => (consulta?.plataformas[p]?.funcionamento ?? ACOES_PADRAO[p]).includes(a);
@@ -285,7 +306,7 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
 
   async function confirmar() {
     const { comando, plataformas } = pendente!;
-    const r = await enviar(() => erpApi.funcionamentoLoja(comando, plataformas.length === 1 ? plataformas[0] : undefined));
+    const r = await enviar(() => erpApi.funcionamentoLoja(comando, plataformas.length === 1 ? plataformas[0] : undefined), plataformas);
     setPendente(null);
     if (r) aoConcluir();
   }
@@ -374,7 +395,7 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
             99Food: abrir sozinha no horário
           </label>
         ) : null}
-        <button type="submit" className="btn btn-sm btn-primary" disabled={enviando}>
+        <button type="submit" className="btn btn-sm btn-primary" disabled={enviando || esperando(aplicaveis)}>
           Revisar ação
         </button>
       </form>
@@ -390,7 +411,7 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
           confirmar={ACOES[pendente.comando.acao]}
           perigo={pendente.comando.acao === 'FECHAR' || pendente.comando.acao === 'PAUSAR'}
           ocupado={enviando}
-          aoConfirmar={() => void confirmar()}
+          bloqueado={esperando(pendente.plataformas)} aoConfirmar={() => void confirmar()}
           aoCancelar={() => setPendente(null)}
         >
           {pendente.plataformas.map((p) => {
@@ -556,7 +577,7 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunh
   const [telefonesEditados, setTelefones] = useState<TelefoneLoja[] | null>(null);
   const [aplicado, setAplicado] = useState<Aplicado>({});
   const [pendente, setPendente] = useState<{ dados: AlteracaoLoja; plataformas: CanalPublicacao[] } | null>(null);
-  const { resultado, erro, setErro, enviando, enviar, avisoDeEspera } = useEnvio(notificar);
+  const { resultado, erro, setErro, enviando, enviar, avisoDeEspera, esperando } = useEnvio(notificar);
   // Uma leitura nova substitui o que foi aplicado; leitura anterior ao envio (ou sem resposta) nao
   useEffect(() => {
     setAplicado((atual) =>
@@ -636,7 +657,7 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunh
 
   async function confirmar() {
     const { dados, plataformas } = pendente!;
-    const r = await enviar(() => erpApi.alterarLoja(dados, plataformas.length === 1 ? plataformas[0] : undefined));
+    const r = await enviar(() => erpApi.alterarLoja(dados, plataformas.length === 1 ? plataformas[0] : undefined), plataformas);
     setPendente(null);
     if (!r) return;
     const entrou = (p: CanalPublicacao, campo: string) => r.plataformas[p]?.campos?.[campo]?.estado === 'APLICADO';
@@ -779,7 +800,7 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunh
             {erro}
           </div>
         ) : null}
-        <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={enviando}>
+        <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={enviando || esperando(marcadas)}>
           Revisar alterações
         </button>
         {/* 99Food: 1 alteracao de dados e horarios por minuto (vao juntos). O Hub devolve retryAfterSegundos e o dialogo avisa. */}
@@ -800,7 +821,7 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunh
         </Confirmacao>
       ) : null}
       {pendente ? (
-        <Confirmacao titulo="Enviar alteração da loja?" confirmar="Confirmar e enviar" ocupado={enviando} aoConfirmar={() => void confirmar()} aoCancelar={() => setPendente(null)}>
+        <Confirmacao titulo="Enviar alteração da loja?" confirmar="Confirmar e enviar" ocupado={enviando} bloqueado={esperando(pendente.plataformas)} aoConfirmar={() => void confirmar()} aoCancelar={() => setPendente(null)}>
           {pendente.plataformas.map((p) => {
             const { horarios, tempoPreparoMinutos: minutos, telefones: novos } = pendente.dados;
             return (
@@ -839,6 +860,7 @@ export function DadosLoja({
   const [versao, setVersao] = useState(0);
   const [erro, setErro] = useState('');
   const [consultando, setConsultando] = useState(false);
+  useRelogio(liberaEm99 > Date.now());
   const rotulo = (p: CanalPublicacao) => `${nomeCanal(p)}: ${lojaDe(p)?.nome || consulta?.plataformas[p]?.loja?.nome || lojaDe(p)?.loja || ''}`;
 
   /** Plataforma que nao respondeu mantem os valores da consulta anterior, com o erro ao lado. */
@@ -865,6 +887,7 @@ export function DadosLoja({
       const parcial = plataformasDoErro(err);
       if (parcial) receber(parcial);
     } finally {
+      if (lojaDe('99FOOD')) liberaEm99 = Math.max(liberaEm99, Date.now() + ESPERA_99_MS);
       setConsultando(false);
     }
   }
@@ -885,8 +908,8 @@ export function DadosLoja({
           {/* 99Food: 1 consulta por minuto e ate 2 minutos para refletir a mudanca; por isso a leitura so roda no clique */}
           <span className="suave">As alterações valem na loja real.</span>
         </div>
-        <button type="button" className="btn btn-sm" disabled={consultando} onClick={() => void consultar()}>
-          <IconeAtualizar size={14} /> {consultando ? 'Consultando...' : 'Consultar de novo'}
+        <button type="button" className="btn btn-sm" disabled={consultando || liberaEm99 > Date.now()} onClick={() => void consultar()}>
+          <IconeAtualizar size={14} /> {consultando ? 'Consultando...' : liberaEm99 > Date.now() ? 'Consultar de novo (aguarde 1 min)' : 'Consultar de novo'}
         </button>
       </div>
       {erro ? (

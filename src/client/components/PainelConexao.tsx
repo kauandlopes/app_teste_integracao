@@ -14,6 +14,13 @@ interface LojaLivre {
   appNome?: string;
 }
 
+/** Minutos da pausa imediata; 0 quando o texto nao e inteiro entre 1 e 1440. */
+function minutosDaPausa(texto: string): number {
+  const t = texto.trim();
+  const n = Number(t);
+  return /^\d+$/.test(t) && n >= 1 && n <= 1440 ? n : 0;
+}
+
 /** Lojas por aplicativo da 99Food, producao primeiro. Resposta sem esses campos vira uma lista unica, sem titulo. */
 function agruparLojas(lojas: LojaLivre[]) {
   const grupos = new Map<string, { chave: string; titulo: string; teste: boolean; lojas: LojaLivre[] }>();
@@ -59,7 +66,8 @@ export function PainelConexao({
   const [carregandoEntregas, setCarregandoEntregas] = useState(false);
 
   const [pausaDesc, setPausaDesc] = useState('Pausa operacional');
-  const [pausaMin, setPausaMin] = useState(30);
+  /** Texto do campo: vazio ou fora da faixa e recusado ao enviar, nunca convertido em outro valor. */
+  const [pausaMin, setPausaMin] = useState('30');
   /** Pausa a criar ou remover, esperando o operador confirmar. */
   const [confirmarPausa, setConfirmarPausa] = useState<{ remover?: { id: string; nome: string } } | null>(null);
   const [enviandoPausa, setEnviandoPausa] = useState(false);
@@ -236,9 +244,11 @@ export function PainelConexao({
   }
 
   async function criarPausa() {
+    const minutos = minutosDaPausa(pausaMin);
+    if (!minutos) return notificar('erro', 'Duração da pausa: informe um número inteiro de 1 a 1440 minutos.');
     try {
-      await erpApi.criarInterrupcao({ description: pausaDesc, durationMinutes: pausaMin });
-      notificar('ok', `Pausa programada aplicada por ${pausaMin} min.`);
+      await erpApi.criarInterrupcao({ description: pausaDesc, durationMinutes: minutos });
+      notificar('ok', `Loja pausada no iFood por ${minutos} min.`);
       await aoAtualizarStatusLoja();
     } catch (err) {
       notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao criar pausa.');
@@ -495,7 +505,7 @@ export function PainelConexao({
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 16 }}>3. Horário e Pausas Temporárias (iFood)</h2>
+            <h2 style={{ margin: 0, fontSize: 16 }}>3. Horário e pausa imediata (iFood)</h2>
             <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Estado atual: {stIfood.carregado ? stIfood.titulo : sessao.lojas.some((l) => l.estado === 'ATIVA') ? 'Não consultado' : 'Nenhuma loja ativa'}
             </span>
@@ -508,6 +518,7 @@ export function PainelConexao({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            if (!minutosDaPausa(pausaMin)) return notificar('erro', 'Duração da pausa: informe um número inteiro de 1 a 1440 minutos.');
             setConfirmarPausa({});
           }}
           style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end', marginBottom: 12 }}
@@ -520,11 +531,12 @@ export function PainelConexao({
             <label className="field-label">Duração (min)</label>
             <input
               type="number"
-              min={5}
+              min={1}
               max={1440}
+              inputMode="numeric"
               className="input input-sm"
               value={pausaMin}
-              onChange={(e) => setPausaMin(Number(e.target.value))}
+              onChange={(e) => setPausaMin(e.target.value)}
             />
           </div>
           <button type="submit" className="btn btn-sm btn-danger">
@@ -559,7 +571,7 @@ export function PainelConexao({
           aoCancelar={() => setConfirmarPausa(null)}
         >
           <strong>iFood: {sessao.lojas.find((l) => l.plataforma === 'IFOOD')?.nome || 'loja desta conexão'}</strong>
-          <span>{confirmarPausa.remover ? `"${confirmarPausa.remover.nome}" será removida e a loja volta a receber pedidos dentro do horário.` : `"${pausaDesc}", por ${pausaMin} minutos.`}</span>
+          <span>{confirmarPausa.remover ? `"${confirmarPausa.remover.nome}" será removida e a loja volta a receber pedidos dentro do horário.` : `"${pausaDesc}", por ${minutosDaPausa(pausaMin)} minutos.`}</span>
         </Confirmacao>
       ) : null}
 

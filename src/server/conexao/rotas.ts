@@ -3,13 +3,35 @@ import { atualizarConfig, db, obterConfig } from '../db.js';
 import { atualizarEstadoConexao, hubFetch, lerJson, mensagemDoHub, RespostaHub } from '../hubClient.js';
 import { limparEspelho } from '../catalogo/espelho.js';
 import { conexaoEncerrada, descartarConexaoAnterior, pedidosAbertos, semLojaAtiva, tokenRecusado } from './estado.js';
+import { dadosSchema, funcionamentoSchema, IDENTIFICADOR_PAUSA, interrupcaoSchema, validar } from './validacao.js';
 
 export const WEBHOOK_PADRAO = 'https://delivery.targetx.com.br/erp-simulador/api/webhook';
 const BASE_PADRAO = 'https://delivery.targetx.com.br/api/v1';
 
 const SEM_CONEXAO = { cnpj: '', nomeLoja: '', conexaoId: '', tokenConexao: '', webhookSegredo: '', estadoConexao: '', lojasVinculadasJson: '[]' };
 
-const falha = (res: Response, r: RespostaHub) => res.status(r.status || 502).json({ ...(r.json as object | null), erro: mensagemDoHub(r) });
+/**
+ * Tempo de espera do 429 para a tela: o Hub manda em Retry-After, e a tela so mostra a contagem se o corpo trouxer
+ * retryAfterSegundos. Acrescenta nos niveis que a tela le (corpo e cada plataforma com erro).
+ */
+function comEspera(corpo: any, r: RespostaHub) {
+  if (r.status !== 429) return corpo;
+  const segundos = r.retryAfterS ?? 60;
+  const porPlataforma = (plats: any) =>
+    plats && typeof plats === 'object'
+      ? Object.fromEntries(
+          Object.entries(plats).map(([p, v]: [string, any]) => [p, v?.erro && v.erro.retryAfterSegundos === undefined ? { ...v, erro: { ...v.erro, retryAfterSegundos: segundos } } : v]),
+        )
+      : plats;
+  return {
+    ...corpo,
+    retryAfterSegundos: corpo?.retryAfterSegundos ?? segundos,
+    ...(corpo?.plataformas ? { plataformas: porPlataforma(corpo.plataformas) } : {}),
+    ...(corpo?.detalhes?.plataformas ? { detalhes: { ...corpo.detalhes, plataformas: porPlataforma(corpo.detalhes.plataformas) } } : {}),
+  };
+}
+
+const falha = (res: Response, r: RespostaHub) => res.status(r.status || 502).json(comEspera({ ...(r.json as object | null), erro: mensagemDoHub(r) }, r));
 const repassar = (res: Response, r: RespostaHub) => (r.ok ? res.status(r.status).json(r.json ?? { ok: true }) : falha(res, r));
 
 /**
@@ -217,17 +239,21 @@ export function rotasConexao(): Router {
   });
 
   api.post('/loja/interrupcoes', async (req, res) => {
-    const minutos = Math.max(1, Number(req.body?.durationMinutes ?? 30));
+    const v = validar(interrupcaoSchema, req.body);
+    if (!v.ok) return res.status(400).json({ erro: v.erro });
+    const { description, durationMinutes = 30, start, end } = v.dados;
     const paraBrasilia = (ms: number) => new Date(ms - 3 * 3600_000).toISOString().slice(0, 19);
+    const agora = Date.now();
     const body = {
-      description: String(req.body?.description || 'Pausa operacional'),
-      start: req.body?.start || paraBrasilia(Date.now()),
-      end: req.body?.end || paraBrasilia(Date.now() + minutos * 60_000),
+      description: description || 'Pausa operacional',
+      start: start ?? paraBrasilia(agora),
+      end: end ?? paraBrasilia(agora + durationMinutes * 60_000),
     };
     repassar(res, await hubFetch('/hub/v1/conexao/loja/interrupcoes', { metodo: 'POST', body }));
   });
 
   api.delete('/loja/interrupcoes/:id', async (req, res) => {
+    if (!IDENTIFICADOR_PAUSA.test(req.params.id)) return res.status(400).json({ erro: 'Identificador da pausa inválido.' });
     repassar(res, await hubFetch(`/hub/v1/conexao/loja/interrupcoes/${encodeURIComponent(req.params.id)}`, { metodo: 'DELETE' }));
   });
 
@@ -237,6 +263,10 @@ export function rotasConexao(): Router {
   const lojaNoHub = (rota: 'dados' | 'funcionamento', metodo: 'GET' | 'PATCH' | 'POST') => async (req: Request, res: Response) => {
     const plat = req.query.plataforma;
     if (plat !== undefined && plat !== 'IFOOD' && plat !== '99FOOD') return res.status(400).json({ erro: 'Plataforma inválida.' });
+    if (metodo !== 'GET') {
+      const v = validar(rota === 'dados' ? dadosSchema : funcionamentoSchema, req.body);
+      if (!v.ok) return res.status(400).json({ erro: v.erro });
+    }
     const r = await hubFetch<any>(`/hub/v1/conexao/loja/${rota}${plat ? `?plataforma=${plat}` : ''}`, { metodo, ...(metodo === 'GET' ? {} : { body: req.body ?? {} }), timeoutMs: 65_000 });
     if (r.json?.codigo === 'LOJA_NAO_ENCONTRADA') await atualizarEstadoConexao();
     // Sem resposta do Hub a alteracao pode ter chegado a plataforma

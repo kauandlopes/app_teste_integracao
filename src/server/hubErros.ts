@@ -27,7 +27,7 @@ const O_QUE_FAZER: Record<string, string> = {
   DESTINO_NAO_AUTORIZADO: 'Confira a URL do webhook.',
   HUB_DESLIGADO: 'O Hub está desligado. Fale com a Target.',
   VINCULO_NAO_ATIVO: 'Fale com a Target: o vínculo desta conexão não está ativo.',
-  IFOOD_PAUSA_JA_EXISTE: 'Em "Dados da loja", use "Abrir" antes de criar outra pausa.',
+  IFOOD_PAUSA_JA_EXISTE: 'Remova a pausa atual em "3. Horário e pausa imediata" ou use "Abrir" em "Dados da loja" antes de criar outra.',
   CATEGORIA_JA_EXISTE: 'Escolha outro nome.',
   COMANDO_RESULTADO_INCERTO: 'A ação pode ter sido executada: confira o pedido antes de repetir.',
   COMANDO_EM_ANDAMENTO: 'Aguarde alguns segundos e confira o pedido.',

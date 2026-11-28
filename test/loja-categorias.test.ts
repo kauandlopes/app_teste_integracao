@@ -219,3 +219,30 @@ test('falha total preserva o detalhe por plataforma e o tempo de espera; sem res
   assert.equal(s.status, 502);
   assert.match(s.json.erro, /pode ter sido aplicada/);
 });
+
+test('pausa iFood recusa duracao vazia ou fora da faixa antes do Hub, e o 429 leva o tempo de espera a tela', async () => {
+  a.quando('POST', /\/loja\/interrupcoes$/, () => ({ json: { ok: true } }));
+  for (const durationMinutes of [0, 1441, 1.5, 'abc']) {
+    const r = await a.erp('POST', '/loja/interrupcoes', { description: 'Teste', durationMinutes });
+    assert.equal(r.status, 400, `duracao ${durationMinutes}`);
+    assert.match(r.json.erro, /Duração da pausa/);
+  }
+  assert.equal((await a.erp('POST', '/loja/interrupcoes', { durationMinutes: 30, start: '2026-11-28T10:00:00', end: '2026-11-28T09:00:00' })).status, 400);
+  assert.equal(a.chamadas.filter((c) => c.metodo === 'POST').length, 0);
+  assert.equal((await a.erp('POST', '/loja/interrupcoes', { description: 'Almoco', durationMinutes: 30 })).status, 200);
+  assert.equal((await a.erp('DELETE', '/loja/interrupcoes/..%2Fx')).status, 400);
+
+  a.quando('PATCH', /\/loja\/dados$/, () => ({ status: 429, json: { erro: 'Limite.', detalhes: { plataformas: { '99FOOD': { erro: { codigo: 'PLATAFORMA_ERRNO_10005', erro: 'Limite.' } } } } } }));
+  const r = await a.erp('PATCH', '/loja/dados', { tempoPreparoMinutos: 30 });
+  assert.equal(r.status, 429);
+  // Sem Retry-After do Hub, a tela recebe o padrao de 60 segundos
+  assert.equal(r.json.retryAfterSegundos, 60);
+  assert.equal(r.json.detalhes.plataformas['99FOOD'].erro.retryAfterSegundos, 60);
+});
+
+test('acao de funcionamento invalida nao chega ao Hub', async () => {
+  const r = await a.erp('POST', '/loja/funcionamento', { acao: 'PAUSAR' });
+  assert.equal(r.status, 400);
+  assert.match(r.json.erro, /PAUSAR exige/);
+  assert.equal((await a.erp('POST', '/loja/funcionamento', { acao: 'OCUPADO', duracaoMinutos: 200, acrescimoPreparoMinutos: 5 })).status, 400);
+});
