@@ -269,7 +269,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <h3 style={{ margin: 0, fontSize: 15 }}>Um cadastro no ERP, publicado no iFood e na 99Food</h3>
           <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.7 }}>
-            <li>Criar ou editar: <code>POST /hub/v1/conexao/catalogo/produtos</code> com a definição completa (adicionais e pizza), um produto por vez.</li>
+            <li>Criar ou editar: <code>POST /hub/v1/conexao/catalogo/produtos</code> com a definição completa (adicionais e pizza), um produto por requisição e até 4 requisições ao mesmo tempo.</li>
             <li>Preço e pausa: <code>PATCH .../produtos/:codigo</code> e <code>.../opcoes/:opcao</code>. Preço de pizza republica o produto.</li>
             <li>Envie sempre <code>codigo</code> em tudo, <code>disponivel</code> e a lista completa de <code>grupos</code>.</li>
             <li>A 99Food responde <code>PROCESSANDO</code>: consulte <code>GET .../produtos/:codigo</code> até mudar.</li>

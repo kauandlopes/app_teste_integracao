@@ -10,8 +10,8 @@ import { esquecerCategorias } from './categorias.js';
 
 /**
  * Fila de publicacao: cada alteracao do cardapio e gravada no ERP e enviada em seguida ao Hub, que publica
- * no iFood e na 99Food. Uma operacao por vez, um produto por requisicao (limites das plataformas), com nova
- * tentativa em falha temporaria. A 99Food responde PROCESSANDO e o resultado e consultado depois.
+ * no iFood e na 99Food. Um produto por requisicao e ate quatro produtos ao mesmo tempo (um de cada vez por
+ * codigo), com nova tentativa em falha temporaria. A 99Food responde PROCESSANDO e o resultado e consultado depois.
  */
 export type Operacao = 'PUBLICAR' | 'PATCH' | 'PATCH_OPCAO' | 'REMOVER';
 
@@ -242,31 +242,56 @@ async function executar(t: Tarefa) {
   marcar(t.codigo, resumo.estado, resumo.erro, canais);
 }
 
+/** Mais que isto passa do limite de comandos por segundo que o Hub aceita de uma conexao. */
+const SIMULTANEOS = 4;
 let rodando = false;
+
+/** Proxima tarefa vencida de um produto que nao esta sendo enviado agora. */
+function proximaTarefa(ocupados: string[]): Tarefa | undefined {
+  // Ordem por produto: uma tarefa adiada segura as seguintes do mesmo codigo
+  return db
+    .prepare(`
+      SELECT * FROM fila_catalogo f WHERE estado = 'PENDENTE' AND proximaEm <= ?
+        AND codigo NOT IN (${ocupados.map(() => '?').join(',')})
+        AND id = (SELECT MIN(id) FROM fila_catalogo g WHERE g.codigo = f.codigo AND g.estado = 'PENDENTE')
+      ORDER BY id LIMIT 1
+    `)
+    .get(Date.now(), ...ocupados) as Tarefa | undefined;
+}
 
 export async function processarCatalogo(): Promise<void> {
   if (rodando || !conexaoPronta()) return;
   rodando = true;
   try {
-    while (conexaoPronta()) {
-      // Ordem por produto: uma tarefa adiada segura as seguintes do mesmo codigo
-      const t = db
-        .prepare(`
-          SELECT * FROM fila_catalogo f WHERE estado = 'PENDENTE' AND proximaEm <= ?
-            AND id = (SELECT MIN(id) FROM fila_catalogo g WHERE g.codigo = f.codigo AND g.estado = 'PENDENTE')
-          ORDER BY id LIMIT 1
-        `)
-        .get(Date.now()) as Tarefa | undefined;
-      if (!t) return;
-      try {
-        await executar(t);
-      } catch (err) {
-        adiar(t, err instanceof Error ? err.message : String(err));
+    const emCurso = new Map<string, Promise<void>>();
+    for (;;) {
+      while (conexaoPronta() && emCurso.size < SIMULTANEOS) {
+        const t = proximaTarefa([...emCurso.keys()]);
+        if (!t) break;
+        emCurso.set(
+          t.codigo,
+          executar(t)
+            .catch((err: unknown) => adiar(t, err instanceof Error ? err.message : String(err)))
+            .finally(() => void emCurso.delete(t.codigo)),
+        );
       }
+      if (!emCurso.size) return;
+      await Promise.race(emCurso.values());
     }
   } finally {
     rodando = false;
   }
+}
+
+/** Com varios produtos em processamento, uma consulta da lista inteira substitui uma consulta por produto. */
+async function situacoesNoHub(codigos: string[]): Promise<Map<string, RespostaHub<any>> | null> {
+  if (codigos.length <= 3) return null;
+  const r = await hubFetch<any>('/hub/v1/conexao/catalogo/produtos', {
+    silenciarSucesso: () => true,
+  });
+  const lista = Array.isArray(r.json) ? r.json : (r.json as any)?.data;
+  if (!r.ok || !Array.isArray(lista)) return null;
+  return new Map(lista.map((p: any) => [String(p.codigo), { ...r, json: p }]));
 }
 
 /** Consulta o resultado das publicacoes que a 99Food processa em segundo plano (mesmo que o outro canal falhe). */
@@ -274,11 +299,14 @@ export async function acompanharProcessamento(): Promise<void> {
   if (!conexaoPronta()) return;
   const linhas = db.prepare(`SELECT * FROM produtos WHERE canaisJson LIKE '%"PROCESSANDO"%'`).all() as LinhaProduto[];
   const ocupado = (codigo: string) => !!db.prepare('SELECT 1 FROM fila_catalogo WHERE codigo = ? AND estado = \'ENVIANDO\'').get(codigo);
+  const lista = await situacoesNoHub(linhas.map((l) => l.codigo));
   for (const l of linhas) {
     if (ocupado(l.codigo)) continue;
-    const r = await hubFetch<any>(`/hub/v1/conexao/catalogo/produtos/${encodeURIComponent(l.codigo)}`, {
-      silenciarSucesso: (j: any) => Object.values(j?.canais ?? {}).some((c: any) => c.estado === 'PROCESSANDO'),
-    });
+    const r =
+      lista?.get(l.codigo) ??
+      (await hubFetch<any>(`/hub/v1/conexao/catalogo/produtos/${encodeURIComponent(l.codigo)}`, {
+        silenciarSucesso: (j: any) => Object.values(j?.canais ?? {}).some((c: any) => c.estado === 'PROCESSANDO'),
+      }));
     // Loja desvinculada: o resultado nao vem mais, entao o produto para de ser consultado
     if ((r.json as any)?.codigo === 'LOJA_NAO_ENCONTRADA') {
       const semLoja = Object.fromEntries(Object.entries(JSON.parse(l.canaisJson) as Record<string, SituacaoCanal>).map(([n, c]) => [n, c.estado === 'PROCESSANDO' ? { ...c, estado: 'SEM_LOJA' as const } : c]));
