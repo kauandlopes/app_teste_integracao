@@ -13,7 +13,7 @@ Atualizado em 27/11/2026. App de testes. by: Kauan
 |---|---|
 | Categoria | Todo produto precisa de categoria. Se faltar em uma plataforma, é criada ao publicar |
 | Criar categoria sem `?plataforma` | Cria no iFood e na 99Food (antes era só no iFood) |
-| Prazo na 99Food | Cerca de 1 minuto. Ela aceita 1 leitura e 1 envio de cardápio por minuto por loja |
+| Prazo na 99Food | De poucos segundos a alguns minutos. Ver "Por que a 99Food demora", abaixo |
 | Resposta "aguarde X segundos" ou `CARDAPIO_99_OCUPADO` | Esperar o tempo de `Retry-After` e repetir |
 | Publicar e alterar produto | Usar `catalogo/produtos`, que enfileira sozinho |
 | Retorno do produto | Olhar `canais.<plataforma>.estado`, `erroCodigo`, `avisos` e `envioEmSegundos` |
@@ -23,6 +23,23 @@ Atualizado em 27/11/2026. App de testes. by: Kauan
 | Número de loja da 99Food | Sempre como texto, nunca como número |
 | Primeiro vínculo de loja 99Food | Pode levar cerca de 30 segundos |
 | Conexão encerrada (`401 TOKEN_INVALIDO`) | Conectar de novo e passar a usar o token novo |
+
+## Por que a 99Food demora
+
+O iFood publica em segundos. A 99Food não recebe um produto sozinho: o Hub lê o cardápio da loja, junta o produto e envia o cardápio inteiro. Por loja, ela permite ler 2 vezes a cada 2 minutos e enviar 1 vez por minuto.
+
+| Situação | Tempo observado |
+|---|---|
+| Limites livres | Poucos segundos |
+| Houve envio ou leitura há pouco | Cerca de 1 a 2 minutos de espera |
+| Processamento dentro da 99Food | Em geral menos de 10 segundos; já levou perto de 3 minutos |
+
+- Produtos enviados em sequência saem juntos em um dos próximos envios.
+- Não reenviar enquanto o produto estiver processando ou na fila.
+- Consultar o cardápio ou as categorias gasta a cota de leitura e pode atrasar a publicação. Não consultar em laço.
+- Pausar e reativar item publicado costuma valer na hora. Preço e cadastro dependem do envio do cardápio.
+- Mudança feita no painel da 99Food em outros itens é mantida. No produto reenviado vale o cadastro do ERP.
+- A foto aparece depois da análise da 99Food, que recusa montagem, colagem e bordas. Usar foto real do produto.
 
 ## Novidades
 

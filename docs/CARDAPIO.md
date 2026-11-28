@@ -129,6 +129,8 @@ as chaves preenchidas:
 | Frequência | Limite geral do Hub | Leitura e envio do cardápio: 1 por minuto |
 | Pausar categoria | Sim | Não (pause os itens) |
 
+> Prazos de publicação e limites da 99Food: ver "Por que a 99Food demora" em [AVISOS.md](../AVISOS.md).
+
 > Atenção: como a 99Food recebe o cardápio inteiro, publicar um único produto altera a loja toda no sentido técnico
 > (o Hub lê o cardápio atual, mescla e envia). Faça testes de publicação somente em loja de teste.
 

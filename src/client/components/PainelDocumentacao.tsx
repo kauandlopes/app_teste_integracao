@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Sessao } from '../api';
+import { PublicacaoNas99 } from './Comuns';
 
 export function PainelDocumentacao({
   sessao,
@@ -263,6 +264,8 @@ Authorization: Bearer {tokenConexao_hubi}`}
       ) : null}
 
       {subAba === 'cardapio' ? (
+        <>
+        <PublicacaoNas99 aberto />
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <h3 style={{ margin: 0, fontSize: 15 }}>Um cadastro no ERP, publicado no iFood e na 99Food</h3>
           <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.7 }}>
@@ -297,7 +300,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
             <strong>Combo:</strong> <code>tipo: "COMBO"</code>, preço no produto e um grupo por etapa (o primeiro é o principal).
           </p>
           <p className="suave" style={{ margin: 0 }}>
-            <strong>Categoria é obrigatória:</strong> se não existir em uma plataforma, o Hub cria ao publicar. <code>GET /hub/v1/conexao/catalogo/categorias</code> mostra onde cada uma existe (na 99Food, 1 leitura por minuto);{' '}
+            <strong>Categoria é obrigatória:</strong> se não existir em uma plataforma, o Hub cria ao publicar. <code>GET /hub/v1/conexao/catalogo/categorias</code> mostra onde cada uma existe (na 99Food, a consulta gasta a cota de leitura);{' '}
             <code>POST</code> na mesma rota, sem <code>?plataforma</code>, cria nas duas e responde por plataforma.
           </p>
           <p className="suave" style={{ margin: 0 }}>
@@ -305,6 +308,7 @@ Authorization: Bearer {tokenConexao_hubi}`}
           </p>
           <p className="suave" style={{ margin: 0 }}>Na 99Food a publicação reenvia o cardápio inteiro da loja: teste publicação apenas em loja de teste.</p>
         </div>
+        </>
       ) : null}
 
       {subAba === 'generica' ? (

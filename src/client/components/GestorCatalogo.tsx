@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AvisoCatalogo, erpApi, EstadoProduto, formatarMoeda, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
-import { Contagem } from './Comuns';
+import { Contagem, PublicacaoNas99 } from './Comuns';
 import { EditorProduto } from './EditorProduto';
 import { IconeAtualizar } from './Icones';
 import { BotaoDisponivel, Plataformas, PrecoEditavel } from './Plataformas';
@@ -131,6 +131,7 @@ export function GestorCatalogo({
       ) : (
         <>
           <span className="suave">Todo produto precisa de categoria. Se ela não existir em uma das plataformas, é criada lá ao publicar.</span>
+          <PublicacaoNas99 />
           {avisos.map((a) => (
             <div className="banner banner-warn linha" key={a.id}>
               <span style={{ flex: 1, minWidth: 220 }}>{a.texto}</span>
