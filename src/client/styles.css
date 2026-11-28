@@ -317,6 +317,10 @@ button {
   font-size: 13px;
 }
 
+.input[aria-invalid='true'] {
+  border-color: var(--err);
+}
+
 .input:focus,
 .select:focus,
 .textarea:focus {
@@ -710,6 +714,9 @@ button {
   .modal-backdrop {
     background: none;
   }
+  body {
+    overflow: visible !important;
+  }
 }
 
 .item-table {
@@ -744,6 +751,10 @@ button {
   z-index: 80;
 }
 
+.modal-backdrop:focus {
+  outline: none;
+}
+
 .modal-panel {
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -751,6 +762,7 @@ button {
   width: 100%;
   max-width: 720px;
   max-height: 90vh;
+  max-height: 90dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -916,7 +928,7 @@ button {
 
 .dia-horario {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
+  grid-template-columns: 110px minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   border-top: 1px solid var(--border);
@@ -933,6 +945,34 @@ button {
 
 .faixa .input {
   width: 76px;
+}
+
+.dia-nome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.select.copiar-dia {
+  width: auto;
+}
+
+/* Confirmacoes: valor atual e novo, um bloco por loja */
+.mudanca {
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+
+.bloco-loja {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bloco-loja + .bloco-loja {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
 }
 
 .telefone .input:first-child {
@@ -952,5 +992,42 @@ button {
   .dia-horario {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+  .dia-nome {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* A barra ocupava quase um terco da tela: no celular ela rola com a pagina */
+  .topbar {
+    position: static;
+  }
+  /* Com modal aberto o aviso vai para o alto: embaixo cobria Cancelar e Confirmar */
+  body:has(.modal-backdrop) .toast-bar {
+    top: 8px;
+    bottom: auto;
+    left: 16px;
+  }
+  /* Alvos de toque */
+  .btn,
+  .input,
+  .select,
+  .chave,
+  .menu-item,
+  .nav-tab,
+  button.pill,
+  summary {
+    min-height: 44px;
+  }
+  .btn-icon {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+  summary {
+    padding: 10px 0;
+  }
+  input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
   }
 }

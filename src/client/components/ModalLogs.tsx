@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { erpApi, LogHttp, formatarHora } from '../api';
+import { useConfirmar } from './Comuns';
 import { IconeAtualizar, IconeFechar } from './Icones';
+import { Modal } from './Modal';
 import { lerJson } from '../../shared/json';
 
 export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void; aoMudarContagem: (erros: number) => void }) {
@@ -11,6 +13,7 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
   const [totalErros, setTotalErros] = useState(0);
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
   const [carregando, setCarregando] = useState(false);
+  const { pedir, dialogo } = useConfirmar();
 
   async function carregar(filtroAtu = filtro, qAtu = busca) {
     setCarregando(true);
@@ -48,8 +51,8 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
   }
 
   return (
-    <div className="modal-backdrop" onClick={aoFechar}>
-      <div className="modal-panel wide" onClick={(e) => e.stopPropagation()}>
+    <Modal aoFechar={aoFechar}>
+      <div className="modal-panel wide" role="dialog" aria-modal="true" aria-label="Logs">
         <div className="modal-head">
           <div>
             <h2 style={{ margin: 0, fontSize: 16 }}>Histórico HTTP & Logs SQLite</h2>
@@ -57,17 +60,9 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
               {total} registros salvos localmente · {totalErros} falhas (4xx / 5xx)
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <a className="btn btn-sm" href="/erp-simulador/api/logs/exportar" style={{ textDecoration: 'none' }}>
-              Exportar JSON
-            </a>
-            <button type="button" className="btn btn-sm btn-danger" onClick={limpar}>
-              Limpar logs
-            </button>
-            <button type="button" className="btn-icon" onClick={aoFechar} title="Fechar">
-              <IconeFechar />
-            </button>
-          </div>
+          <button type="button" className="btn-icon" onClick={aoFechar} title="Fechar" aria-label="Fechar">
+            <IconeFechar />
+          </button>
         </div>
 
         <div className="modal-body">
@@ -98,6 +93,25 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
               />
               <button type="button" className="btn btn-sm" onClick={() => carregar(filtro, busca)} disabled={carregando}>
                 <IconeAtualizar size={14} /> Atualizar
+              </button>
+              <a className="btn btn-sm" href="/erp-simulador/api/logs/exportar" style={{ textDecoration: 'none' }}>
+                Exportar JSON
+              </a>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() =>
+                  pedir({
+                    titulo: 'Limpar logs?',
+                    confirmar: 'Limpar logs',
+                    aviso: 'Não é possível desfazer.',
+                    perigo: true,
+                    conteudo: <span>Apaga os {total} registros salvos neste ERP.</span>,
+                    acao: limpar,
+                  })
+                }
+              >
+                Limpar logs
               </button>
             </div>
           </div>
@@ -172,6 +186,7 @@ export function ModalLogs({ aoFechar, aoMudarContagem }: { aoFechar: () => void;
           </div>
         </div>
       </div>
-    </div>
+      {dialogo}
+    </Modal>
   );
 }

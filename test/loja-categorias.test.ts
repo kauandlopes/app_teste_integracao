@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { prepararAmbiente } from './apoio.js';
 import { ondeExiste } from '../src/shared/categorias.js';
+import { erroDoDia, normalizarHora } from '../src/shared/horarios.js';
 import type { CategoriaHub, ListaCategorias } from '../src/shared/tipos.js';
 
 let a: Awaited<ReturnType<typeof prepararAmbiente>>;
@@ -153,6 +154,33 @@ test('aviso da exclusao fica na tela depois que o produto sai do ERP', async () 
   assert.match(avisos[0].texto, /X-Salada.*99Food: A 99Food recusou apagar/);
   await a.erp('DELETE', `/catalogo/avisos/${avisos[0].id}`);
   assert.deepEqual((await a.erp('GET', '/catalogo/avisos')).json, []);
+});
+
+test('avisos de espera somem quando o canal deixa de processar; os demais ficam', async () => {
+  const espera = ['A 99Food publica o cardapio em ate alguns minutos; consulte o status do produto.', 'Na fila: a 99Food aceita 1 envio de cardapio por minuto. Envio em cerca de 40 segundos.', 'Ha um envio de cardapio em andamento na 99Food: a disponibilidade sera confirmada quando ele terminar.'];
+  const outro = 'A foto esta em analise.';
+  publicado({ IFOOD: { estado: 'PUBLICADO' }, '99FOOD': { estado: 'PROCESSANDO', avisos: [...espera, outro] } });
+  await a.erp('PUT', '/catalogo/produtos', lanche);
+  await esperar();
+  assert.equal((await produtos())[0].canais['99FOOD'].avisos.length, 4);
+  a.quando('GET', /\/catalogo\/produtos\//, () => ({ json: { canais: { IFOOD: { estado: 'PUBLICADO' }, '99FOOD': { estado: 'PUBLICADO', avisos: [...espera, outro] } } } }));
+  await pub.acompanharProcessamento();
+  assert.deepEqual((await produtos())[0].canais['99FOOD'].avisos, [outro]);
+});
+
+test('horarios: completa o que foi digitado e recusa faixa invalida ou sobreposta', () => {
+  assert.deepEqual(['9', '930', '1100', '9:00', '18h30', '24:00', 'abc'].map(normalizarHora), ['09:00', '09:30', '11:00', '09:00', '18:30', '24:00', 'abc']);
+  const dia = (...f: Array<[string, string]>) => erroDoDia(f.map(([inicio, fim]) => ({ inicio, fim })));
+  assert.equal(dia(), '', 'dia fechado');
+  assert.equal(dia(['11:00', '15:00'], ['15:00', '23:00']), '');
+  assert.equal(dia(['18:00', '02:00']), '', 'passa da meia-noite');
+  assert.equal(dia(['00:00', '24:00']), '');
+  assert.equal(dia(['01:00', '03:00'], ['22:00', '02:00']), '');
+  assert.match(dia(['24:00', '02:00']), /formato/);
+  assert.match(dia(['11:00', '']), /formato/);
+  assert.match(dia(['11:00', '11:00']), /diferente/);
+  assert.match(dia(['11:00', '15:00'], ['14:00', '18:00']), /sobrepostas/);
+  assert.match(dia(['18:00', '02:00'], ['23:00', '23:30']), /sobrepostas/);
 });
 
 test('dados e funcionamento da loja repassam plataforma e corpo ao Hub', async () => {

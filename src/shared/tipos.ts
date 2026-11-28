@@ -377,6 +377,8 @@ export interface LojaPlataforma {
   naoEditaveis?: string[];
   funcionamento?: AcaoLoja[];
   observacoes?: string[];
+  /** 99Food: presente quando os dados sao uma leitura guardada; horario em que ela respondeu. */
+  lidoEm?: string;
   dados: DadosLoja | null;
   erro?: ErroLoja;
   falhas?: Array<ErroLoja & { secao: string }>;

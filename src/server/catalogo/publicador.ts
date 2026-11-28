@@ -42,9 +42,14 @@ function comEnvioPrevisto(canais: Canais, anteriores: Canais): Canais {
   return canais;
 }
 
-function comSegundosRestantes(canais: Canais): Canais {
+/** Avisos do Hub que so fazem sentido enquanto a publicacao esta em andamento. */
+const AVISO_DE_ESPERA = /^(A 99Food publica o card[aá]pio em at[eé]|H[aá] um envio de card[aá]pio em andamento|Na fila:)/i;
+
+/** Ajusta o que vai para a tela: segundos que faltam e, fora do processamento, sem avisos de espera gravados antes. */
+function paraTela(canais: Canais): Canais {
   for (const c of Object.values(canais)) {
-    if (c.estado === 'PROCESSANDO' && c.envioPrevistoEm) c.envioEmSegundos = Math.max(0, Math.ceil((Date.parse(c.envioPrevistoEm) - Date.now()) / 1000));
+    if (c.estado !== 'PROCESSANDO') c.avisos = c.avisos?.filter((a) => !AVISO_DE_ESPERA.test(a));
+    else if (c.envioPrevistoEm) c.envioEmSegundos = Math.max(0, Math.ceil((Date.parse(c.envioPrevistoEm) - Date.now()) / 1000));
   }
   return canais;
 }
@@ -83,7 +88,7 @@ export function listarProdutos(): ProdutoCadastrado[] {
     produto: JSON.parse(l.definicaoJson),
     estado: l.estado,
     erro: l.erro,
-    canais: comSegundosRestantes(JSON.parse(l.canaisJson || '{}')),
+    canais: paraTela(JSON.parse(l.canaisJson || '{}')),
     operacoesPendentes: pendentes.get(l.codigo) ?? 0,
     atualizadoEm: l.atualizadoEm,
   }));

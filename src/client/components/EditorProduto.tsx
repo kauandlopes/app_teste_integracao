@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { erpApi, lerPreco, ListaCategorias, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
+import { erpApi, formatarMoeda, lerPreco, ListaCategorias, mensagemDe, PLATAFORMAS_PRECO, PlataformaPreco, PrecosPlataforma, ProdutoErp } from '../api';
 import { chaveCategoria, ondeExiste, soSecaoDePizza } from '../../shared/categorias';
+import { useDescarte } from './Comuns';
 import { IconeFechar } from './Icones';
+import { Modal } from './Modal';
 
 /**
  * Cadastro de produto (simples, pizza ou combo). Um unico formulario: ao salvar, o ERP grava e envia ao iFood e a 99Food.
@@ -193,7 +195,7 @@ async function prepararFoto(arquivo: File): Promise<string> {
       const dados = tela.toDataURL('image/jpeg', qualidade);
       if (dados.length < 700_000) return dados;
     }
-    throw new Error('Não foi possivel reduzir a imagem. Escolha outra.');
+    throw new Error('Não foi possível reduzir a imagem. Escolha outra.');
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -323,6 +325,7 @@ function ListaOpcoes({ opcoes, mudar, rotulo, porPlataforma }: { opcoes: Opcao[]
 }
 
 export function EditorProduto({
+  destinos,
   produto,
   tipo,
   categorias,
@@ -331,6 +334,8 @@ export function EditorProduto({
   aoSalvar,
   notificar,
 }: {
+  /** Lojas vinculadas que recebem o produto. */
+  destinos: string[];
   produto: ProdutoErp | null;
   tipo: ProdutoErp['tipo'];
   categorias: string[];
@@ -348,6 +353,20 @@ export function EditorProduto({
   const item = <T,>(lista: T[], i: number, parte: Partial<T>) => lista.map((x, j) => (j === i ? { ...x, ...parte } : x));
   const ehPizza = f.tipo === 'PIZZA';
   const ehCombo = f.tipo === 'COMBO';
+  const [inicial] = useState(() => JSON.stringify(f));
+  const alterado = JSON.stringify(f) !== inicial;
+  const descarte = useDescarte(alterado, aoFechar);
+  const fechar = () => !salvando && descarte.fechar();
+  /** O que muda nos campos principais em relacao ao produto salvo. */
+  const mudancas =
+    produto && alterado
+      ? [
+          f.nome !== produto.nome && `nome ${produto.nome} → ${f.nome}`,
+          !ehPizza && lerPreco(f.preco || '0') !== produto.preco && `preço ${formatarMoeda(produto.preco)} → ${formatarMoeda(lerPreco(f.preco || '0'))}`,
+          f.categoria !== produto.categoria && `categoria ${produto.categoria} → ${f.categoria}`,
+          f.disponivel !== produto.disponivel && (f.disponivel ? 'pausado → disponível' : 'disponível → pausado'),
+        ].filter(Boolean)
+      : [];
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
@@ -363,7 +382,7 @@ export function EditorProduto({
       await aoSalvar();
       aoFechar();
     } catch (err) {
-      setErro(mensagemDe(err, 'Não foi possivel salvar.'));
+      setErro(mensagemDe(err, 'Não foi possível salvar.'));
     } finally {
       setSalvando(false);
     }
@@ -382,16 +401,28 @@ export function EditorProduto({
   }
 
   return (
-    <div className="modal-backdrop">
-      <form className="modal-panel wide" onSubmit={salvar}>
+    <Modal fundoFecha={false} aoFechar={fechar}>
+      <form
+        className="modal-panel wide"
+        role="dialog"
+        aria-modal="true"
+        onSubmit={salvar}
+        // Enter em um campo publicaria o produto sem querer: salvar e somente pelo botao
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault();
+        }}
+      >
         <div className="modal-head">
           <h2 style={{ margin: 0, fontSize: 16 }}>{produto ? `Editar ${produto.nome}` : ehPizza ? 'Nova pizza' : ehCombo ? 'Novo combo' : 'Novo produto'}</h2>
-          <button type="button" className="btn-icon" onClick={aoFechar} title="Fechar">
+          <button type="button" className="btn-icon" disabled={salvando} onClick={fechar} title="Fechar" aria-label="Fechar">
             <IconeFechar />
           </button>
         </div>
 
         <div className="modal-body">
+          <span className={destinos.length ? 'suave' : 'observacao'}>
+            {destinos.length ? `Salvar envia para ${destinos.join(' · ')}.` : 'Nenhuma loja vinculada: o produto fica no ERP até vincular uma loja.'}
+          </span>
           <div className="grid-2">
             <label className="field">
               <span className="field-label">Nome</span>
@@ -600,8 +631,16 @@ export function EditorProduto({
         </div>
 
         <div className="modal-foot">
-          {erro ? <span className="observacao" style={{ marginRight: 'auto' }}>{erro}</span> : null}
-          <button type="button" className="btn" onClick={aoFechar}>
+          {erro ? (
+            <span className="observacao" role="alert" style={{ marginRight: 'auto' }}>
+              {erro}
+            </span>
+          ) : mudancas.length ? (
+            <span className="suave" style={{ marginRight: 'auto' }}>
+              Muda: {mudancas.join('; ')}.
+            </span>
+          ) : null}
+          <button type="button" className="btn" disabled={salvando} onClick={fechar}>
             Cancelar
           </button>
           <button type="submit" className="btn btn-primary" disabled={salvando}>
@@ -609,6 +648,7 @@ export function EditorProduto({
           </button>
         </div>
       </form>
-    </div>
+      {descarte.pergunta}
+    </Modal>
   );
 }

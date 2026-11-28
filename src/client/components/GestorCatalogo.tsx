@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AvisoCatalogo, erpApi, EstadoProduto, formatarMoeda, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
-import { Contagem, PublicacaoNas99 } from './Comuns';
+import { AvisoCatalogo, erpApi, EstadoProduto, formatarMoeda, LojaVinculada, mensagemDe, nomeCanal, ProdutoCadastrado, ProdutoErp } from '../api';
+import { Contagem, Mudanca, PublicacaoNas99, useConfirmar } from './Comuns';
 import { EditorProduto } from './EditorProduto';
 import { IconeAtualizar } from './Icones';
 import { BotaoDisponivel, Plataformas, PrecoEditavel } from './Plataformas';
@@ -24,11 +24,13 @@ const CANAL: Record<string, [string, string]> = {
 };
 
 export function GestorCatalogo({
+  lojas,
   produtos,
   notificar,
   aoRecarregar,
   aoAbrirLogs,
 }: {
+  lojas: LojaVinculada[];
   produtos: ProdutoCadastrado[];
   notificar: (tipo: 'ok' | 'erro', msg: string) => void;
   aoRecarregar: () => Promise<void>;
@@ -38,10 +40,21 @@ export function GestorCatalogo({
   const [busca, setBusca] = useState('');
   const [editor, setEditor] = useState<{ produto: ProdutoErp | null; tipo: ProdutoErp['tipo'] } | null>(null);
   const [aberto, setAberto] = useState<string | null>(null);
-  const [excluindo, setExcluindo] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [categoriasPlataforma, setCategoriasPlataforma] = useState<string[]>([]);
   const [avisos, setAvisos] = useState<AvisoCatalogo[]>([]);
+  const { pedir, dialogo } = useConfirmar();
+  const destinos = lojas.filter((l) => l.estado === 'ATIVA').map((l) => `${nomeCanal(l.plataforma)}: ${l.nome || l.loja}`);
+  const ondeVale = destinos.length ? (
+    <div className="semana">
+      <span className="field-label">Vale em</span>
+      {destinos.map((d) => (
+        <strong key={d}>{d}</strong>
+      ))}
+    </div>
+  ) : (
+    <span className="observacao">Nenhuma loja vinculada: a mudança fica no ERP.</span>
+  );
 
   useEffect(() => {
     void erpApi
@@ -83,6 +96,46 @@ export function GestorCatalogo({
     const alvo = produtos.find((p) => p.produto.codigo === sku);
     if (alvo) setEditor({ produto: alvo.produto, tipo: alvo.produto.tipo });
   };
+
+  /** Preco e disponibilidade vao direto para a loja real: mostra o valor atual e o novo antes. */
+  const confirmarMudanca = (chave: string, nome: string, rotulo: string, de: string, para: string, tarefa: () => Promise<unknown>, sucesso: string) =>
+    pedir({
+      titulo: `Alterar ${rotulo.toLowerCase()} de ${nome}?`,
+      confirmar: 'Confirmar e enviar',
+      aviso: 'A mudança vale na loja real. Na 99Food pode levar alguns minutos.',
+      conteudo: (
+        <>
+          <Mudanca rotulo={rotulo} de={de} para={para} />
+          {ondeVale}
+        </>
+      ),
+      acao: () => executar(chave, tarefa, sucesso),
+    });
+  const mudarPreco = (chave: string, nome: string, atual: number, novo: number, tarefa: () => Promise<unknown>) =>
+    confirmarMudanca(chave, nome, 'Preço', formatarMoeda(atual), formatarMoeda(novo), tarefa, 'Preço salvo. Enviando.');
+  const mudarDisponivel = (chave: string, nome: string, atual: boolean, tarefa: () => Promise<unknown>) =>
+    confirmarMudanca(chave, nome, 'Disponibilidade', atual ? 'Disponível' : 'Pausado', atual ? 'Pausado' : 'Disponível', tarefa, 'Disponibilidade salva. Enviando.');
+
+  const excluir = (p: ProdutoErp) =>
+    pedir({
+      titulo: `Excluir ${p.nome}?`,
+      confirmar: 'Excluir do ERP e das plataformas',
+      aviso: 'Não é possível desfazer.',
+      perigo: true,
+      conteudo: (
+        <>
+          <span>
+            <strong>Excluir do ERP e das plataformas:</strong> apaga o produto aqui, no iFood e na 99Food. Se a 99Food não aceitar apagar, o item fica pausado.
+          </span>
+          <span>
+            <strong>Remover só do ERP:</strong> o produto continua publicado nas plataformas, sem controle por este ERP.
+          </span>
+          {ondeVale}
+        </>
+      ),
+      acao: () => executar(p.codigo, () => erpApi.excluirProduto(p.codigo), 'Exclusão enviada ao iFood e à 99Food.'),
+      outra: { rotulo: 'Remover só do ERP', acao: () => executar(p.codigo, () => erpApi.excluirProduto(p.codigo, true), 'Removido somente do ERP.') },
+    });
 
   const opcoesDe = (p: ProdutoErp) => [
     ...(p.pizza
@@ -127,7 +180,7 @@ export function GestorCatalogo({
       </div>
 
       {aba === 'plataformas' ? (
-        <Plataformas skusDoErp={skus} notificar={notificar} aoAbrirNoErp={abrirNoErp} />
+        <Plataformas lojas={lojas} skusDoErp={skus} notificar={notificar} aoAbrirNoErp={abrirNoErp} />
       ) : (
         <>
           <span className="suave">Todo produto precisa de categoria. Se ela não existir em uma das plataformas, é criada lá ao publicar.</span>
@@ -142,7 +195,7 @@ export function GestorCatalogo({
           ))}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             {!filtrados.length ? (
-              <div className="vazio">Nenhum produto cadastrado. Crie um produto ou uma pizza: cada alteracao e enviada ao iFood e à 99Food.</div>
+              <div className="vazio">Nenhum produto cadastrado. Crie um produto ou uma pizza: cada alteração é enviada ao iFood e à 99Food.</div>
             ) : null}
             {filtrados.map((item) => {
               const p = item.produto;
@@ -173,14 +226,14 @@ export function GestorCatalogo({
                       })}
                     </div>
                     {p.tipo !== 'PIZZA' ? (
-                      <PrecoEditavel valor={p.preco} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { preco }), 'Preço salvo. Enviando.')} />
+                      <PrecoEditavel valor={p.preco} desabilitado={!!ocupado} aoSalvar={(preco) => mudarPreco(p.codigo, p.nome, p.preco, preco, () => erpApi.ajustarProduto(p.codigo, { preco }))} />
                     ) : (
                       <span className="suave">a partir de {formatarMoeda(p.preco)}</span>
                     )}
                     <BotaoDisponivel
                       disponivel={p.disponivel}
                       desabilitado={!!ocupado}
-                      aoClicar={() => void executar(p.codigo, () => erpApi.ajustarProduto(p.codigo, { disponivel: !p.disponivel }), 'Disponibilidade salva. Enviando.')}
+                      aoClicar={() => mudarDisponivel(p.codigo, p.nome, p.disponivel, () => erpApi.ajustarProduto(p.codigo, { disponivel: !p.disponivel }))}
                     />
                     {listas.length ? (
                       <button type="button" className="btn btn-sm" onClick={() => setAberto(aberto === p.codigo ? null : p.codigo)}>
@@ -193,7 +246,7 @@ export function GestorCatalogo({
                     <button type="button" className="btn btn-sm" disabled={!!ocupado} onClick={() => void executar(p.codigo, () => erpApi.reenviarProduto(p.codigo), 'Produto colocado na fila.')}>
                       Reenviar
                     </button>
-                    <button type="button" className="btn btn-sm btn-danger" onClick={() => setExcluindo(excluindo === p.codigo ? null : p.codigo)}>
+                    <button type="button" className="btn btn-sm btn-danger" disabled={!!ocupado} onClick={() => excluir(p)}>
                       Excluir
                     </button>
                   </div>
@@ -217,21 +270,6 @@ export function GestorCatalogo({
                       )),
                   )}
 
-                  {excluindo === p.codigo ? (
-                    <div className="banner banner-err linha">
-                      <span style={{ flex: 1 }}>Excluir {p.nome}?</span>
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => void executar(p.codigo, () => erpApi.excluirProduto(p.codigo), 'Exclusão enviada ao iFood e à 99Food.').then(() => setExcluindo(null))}>
-                        Excluir do ERP e das plataformas
-                      </button>
-                      <button type="button" className="btn btn-sm" onClick={() => void executar(p.codigo, () => erpApi.excluirProduto(p.codigo, true), 'Removido somente do ERP.').then(() => setExcluindo(null))}>
-                        Remover só do ERP
-                      </button>
-                      <button type="button" className="btn btn-sm" onClick={() => setExcluindo(null)}>
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : null}
-
                   {aberto === p.codigo
                     ? listas.map((l) => (
                         <div className="grupo-espelho" key={l.titulo}>
@@ -244,12 +282,12 @@ export function GestorCatalogo({
                               {'porTamanho' in o && o.porTamanho ? (
                                 <span className="suave">preço por tamanho (editar o produto)</span>
                               ) : (
-                                <PrecoEditavel valor={o.valor} desabilitado={!!ocupado} aoSalvar={(preco) => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { preco }), 'Preço salvo. Enviando.')} />
+                                <PrecoEditavel valor={o.valor} desabilitado={!!ocupado} aoSalvar={(preco) => mudarPreco(o.codigo, o.nome, o.valor, preco, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { preco }))} />
                               )}
                               <BotaoDisponivel
                                 disponivel={o.disponivel}
                                 desabilitado={!!ocupado}
-                                aoClicar={() => void executar(o.codigo, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { disponivel: !o.disponivel }), 'Disponibilidade salva. Enviando.')}
+                                aoClicar={() => mudarDisponivel(o.codigo, o.nome, o.disponivel, () => erpApi.ajustarOpcao(p.codigo, o.codigo, { disponivel: !o.disponivel }))}
                               />
                             </div>
                           ))}
@@ -264,8 +302,9 @@ export function GestorCatalogo({
       )}
 
       {editor ? (
-        <EditorProduto produto={editor.produto} tipo={editor.tipo} categorias={categorias} categoriasEspelho={categoriasPlataforma} notificar={notificar} aoFechar={() => setEditor(null)} aoSalvar={aoRecarregar} />
+        <EditorProduto destinos={destinos} produto={editor.produto} tipo={editor.tipo} categorias={categorias} categoriasEspelho={categoriasPlataforma} notificar={notificar} aoFechar={() => setEditor(null)} aoSalvar={aoRecarregar} />
       ) : null}
+      {dialogo}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { CategoriaCriada, CategoriaEspelho, erpApi, formatarMoeda, GrupoEspelho, ItemEspelho, lerPreco, mensagemDe, nomeCanal, ResultadoCategoria } from '../api';
-import { Contagem } from './Comuns';
+import { CategoriaCriada, CategoriaEspelho, erpApi, formatarMoeda, GrupoEspelho, ItemEspelho, lerPreco, LojaVinculada, mensagemDe, nomeCanal, ResultadoCategoria } from '../api';
+import { Contagem, Mudanca, useConfirmar } from './Comuns';
 import { IconeAtualizar, IconeSeta } from './Icones';
 
 const CRIACAO: Record<CategoriaCriada['estado'], [string, string]> = {
@@ -15,6 +15,9 @@ const CRIACAO: Record<CategoriaCriada['estado'], [string, string]> = {
 /** O que esta publicado em cada plataforma, com ajustes rapidos para itens que nao sao cadastrados no ERP. */
 export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number; desabilitado?: boolean; aoSalvar: (novo: number) => void }) {
   const [texto, setTexto] = useState<string | null>(null);
+  const [invalido, setInvalido] = useState(false);
+  // O campo fica aberto ate o valor mudar: cancelar a confirmacao ou falhar no envio nao apaga o que foi digitado
+  useEffect(() => setTexto(null), [valor]);
   if (texto === null) {
     return (
       <button type="button" className="btn btn-sm" disabled={desabilitado} title="Alterar preço" onClick={() => setTexto(String(valor).replace('.', ','))}>
@@ -25,10 +28,10 @@ export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number
   const salvar = () => {
     const novo = lerPreco(texto);
     // Campo vazio nao vira preco zero
-    if (texto.trim() && Number.isFinite(novo) && novo >= 0) {
-      aoSalvar(novo);
-      setTexto(null);
-    }
+    if (!texto.trim() || !Number.isFinite(novo) || novo < 0) return setInvalido(true);
+    setInvalido(false);
+    if (novo === valor) setTexto(null);
+    else aoSalvar(novo);
   };
   return (
     <span className="linha">
@@ -36,16 +39,26 @@ export function PrecoEditavel({ valor, desabilitado, aoSalvar }: { valor: number
         className="input input-sm preco"
         autoFocus
         inputMode="decimal"
+        aria-label="Novo preço"
+        aria-invalid={invalido}
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') salvar();
+          if (e.key === 'Enter') {
+            // Sem isto o mesmo Enter acionaria o botao focado na confirmacao que abre
+            e.preventDefault();
+            salvar();
+          }
           if (e.key === 'Escape') setTexto(null);
         }}
       />
-      <button type="button" className="btn btn-sm btn-primary" onClick={salvar}>
+      <button type="button" className="btn btn-sm btn-primary" disabled={desabilitado} onClick={salvar}>
         Salvar
       </button>
+      <button type="button" className="btn btn-sm" onClick={() => setTexto(null)}>
+        Cancelar
+      </button>
+      {invalido ? <span className="observacao">Preço inválido.</span> : null}
     </span>
   );
 }
@@ -57,7 +70,17 @@ export const BotaoDisponivel = ({ disponivel, desabilitado, aoClicar }: { dispon
   </button>
 );
 
-export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp: Set<string>; notificar: (tipo: 'ok' | 'erro', msg: string) => void; aoAbrirNoErp: (sku: string) => void }) {
+export function Plataformas({
+  lojas,
+  skusDoErp,
+  notificar,
+  aoAbrirNoErp,
+}: {
+  lojas: LojaVinculada[];
+  skusDoErp: Set<string>;
+  notificar: (tipo: 'ok' | 'erro', msg: string) => void;
+  aoAbrirNoErp: (sku: string) => void;
+}) {
   const [categorias, setCategorias] = useState<CategoriaEspelho[]>([]);
   const [atualizadoEm, setAtualizadoEm] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
@@ -67,6 +90,7 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
   const [edicaoCategoria, setEdicaoCategoria] = useState<{ id: string | null; nome: string } | null>(null);
   const [diagnostico, setDiagnostico] = useState('');
   const [criada, setCriada] = useState<ResultadoCategoria | null>(null);
+  const { pedir, dialogo } = useConfirmar();
 
   async function carregar(atualizar = false) {
     const r = await erpApi.plataformas(atualizar);
@@ -110,6 +134,26 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
   }
 
   const doCanal = categorias.filter((c) => c.plataforma === canal);
+  const loja = lojas.find((l) => l.plataforma === canal && l.estado === 'ATIVA');
+
+  /** Mudanca direta na plataforma: mostra o valor atual, o novo e a loja antes de enviar. */
+  const confirmarMudanca = (nome: string, rotulo: string, de: string, para: string, tarefa: () => Promise<unknown>, sucesso: string) =>
+    pedir({
+      titulo: `Alterar ${rotulo.toLowerCase()} de ${nome}?`,
+      confirmar: `Confirmar ${canal === 'IFOOD' ? 'no iFood' : 'na 99Food'}`,
+      conteudo: (
+        <>
+          <strong>
+            {nomeCanal(canal)}: {loja?.nome || loja?.loja || 'loja desta conexão'}
+          </strong>
+          <Mudanca rotulo={rotulo} de={de} para={para} />
+          <span className="suave">A mudança vale somente {canal === 'IFOOD' ? 'no iFood' : 'na 99Food'}.</span>
+        </>
+      ),
+      acao: () => executar(tarefa, sucesso),
+    });
+  const situacao = (status: string) => (status === 'UNAVAILABLE' ? 'Pausado' : 'Disponível');
+  const inverso = (status: string) => (status === 'UNAVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE');
 
   function grupos(lista: GrupoEspelho[], item: ItemEspelho, nivel = 0): React.ReactNode {
     const doErp = skusDoErp.has(item.sku);
@@ -130,14 +174,20 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
               <PrecoEditavel
                 valor={o.preco}
                 desabilitado={ocupado || doErp}
-                aoSalvar={(preco) => void executar(() => erpApi.ajustarOpcaoPlataforma({ plataforma: canal, optionId: o.id, groupId: g.id, preco }), `Preço de ${o.nome} atualizado.`)}
+                aoSalvar={(preco) =>
+                  confirmarMudanca(o.nome, 'Preço', formatarMoeda(o.preco), formatarMoeda(preco), () => erpApi.ajustarOpcaoPlataforma({ plataforma: canal, optionId: o.id, groupId: g.id, preco }), `Preço de ${o.nome} atualizado.`)
+                }
               />
               <BotaoDisponivel
                 disponivel={o.status !== 'UNAVAILABLE'}
                 desabilitado={ocupado || doErp}
                 aoClicar={() =>
-                  void executar(
-                    () => erpApi.ajustarOpcaoPlataforma({ plataforma: canal, optionId: o.id, status: o.status === 'UNAVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE' }),
+                  confirmarMudanca(
+                    o.nome,
+                    'Disponibilidade',
+                    situacao(o.status),
+                    situacao(inverso(o.status)),
+                    () => erpApi.ajustarOpcaoPlataforma({ plataforma: canal, optionId: o.id, status: inverso(o.status) }),
                     `${o.nome}: disponibilidade alterada.`,
                   )
                 }
@@ -276,7 +326,7 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
                   disponivel={c.status !== 'UNAVAILABLE'}
                   desabilitado={ocupado}
                   aoClicar={() =>
-                    void executar(() => erpApi.alterarCategoria(c.id, { plataforma: canal, status: c.status === 'UNAVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE' }), 'Categoria atualizada.')
+                    confirmarMudanca(c.nome, 'Disponibilidade', situacao(c.status), situacao(inverso(c.status)), () => erpApi.alterarCategoria(c.id, { plataforma: canal, status: inverso(c.status) }), 'Categoria atualizada.')
                   }
                 />
               ) : null}
@@ -307,13 +357,21 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
                       {aberto === chave ? 'Ocultar adicionais' : `Adicionais (${it.grupos.length})`}
                     </button>
                   ) : null}
-                  <PrecoEditavel valor={it.preco} desabilitado={ocupado || doErp} aoSalvar={(preco) => void executar(() => erpApi.ajustarItemPlataforma({ plataforma: canal, itemId: it.id, preco }), `Preço de ${it.nome} atualizado.`)} />
+                  <PrecoEditavel
+                    valor={it.preco}
+                    desabilitado={ocupado || doErp}
+                    aoSalvar={(preco) => confirmarMudanca(it.nome, 'Preço', formatarMoeda(it.preco), formatarMoeda(preco), () => erpApi.ajustarItemPlataforma({ plataforma: canal, itemId: it.id, preco }), `Preço de ${it.nome} atualizado.`)}
+                  />
                   <BotaoDisponivel
                     disponivel={it.status !== 'UNAVAILABLE'}
                     desabilitado={ocupado || doErp}
                     aoClicar={() =>
-                      void executar(
-                        () => erpApi.ajustarItemPlataforma({ plataforma: canal, itemId: it.id, status: it.status === 'UNAVAILABLE' ? 'AVAILABLE' : 'UNAVAILABLE' }),
+                      confirmarMudanca(
+                        it.nome,
+                        'Disponibilidade',
+                        situacao(it.status),
+                        situacao(inverso(it.status)),
+                        () => erpApi.ajustarItemPlataforma({ plataforma: canal, itemId: it.id, status: inverso(it.status) }),
                         `${it.nome}: disponibilidade alterada.`,
                       )
                     }
@@ -326,6 +384,7 @@ export function Plataformas({ skusDoErp, notificar, aoAbrirNoErp }: { skusDoErp:
           {!c.itens.length ? <div className="vazio">Categoria sem itens</div> : null}
         </div>
       ))}
+      {dialogo}
     </div>
   );
 }

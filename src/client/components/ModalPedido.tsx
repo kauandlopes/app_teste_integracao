@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AcaoDisponivel, erpApi, formatarHora, formatarMoeda, mensagemDe, MotivoCancelamento, nomeCanal, PedidoErp, StatusKanban } from '../api';
+import { useConfirmar, useDescarte } from './Comuns';
 import { IconeFechar } from './Icones';
+import { Modal } from './Modal';
 
 export const ROTULO_ETAPA: Record<StatusKanban, string> = {
   NOVO: 'Novo',
@@ -56,14 +58,21 @@ export function ModalPedido({
   const [motivos, setMotivos] = useState<MotivoCancelamento[] | null>(null);
   const [subrecurso, setSubrecurso] = useState('');
   const [observacao, setObservacao] = useState(pedido.observacaoErp);
+  const [digitou, setDigitou] = useState(false);
+  const descarte = useDescarte(digitou || observacao !== pedido.observacaoErp, aoFechar);
+  const { pedir, dialogo } = useConfirmar();
   // Mesma intencao enquanto o operador repete a mesma acao: erro de rede nao duplica o comando
   const intencoes = useRef(new Map<string, string>());
 
   const p = pedido;
   const campo = (nome: string) => campos[nome] ?? '';
-  const definir = (nome: string, valor: string) => setCampos((c) => ({ ...c, [nome]: valor }));
+  const definir = (nome: string, valor: string) => {
+    setDigitou(true);
+    setCampos((c) => ({ ...c, [nome]: valor }));
+  };
 
   useEffect(() => {
+    setDigitou(false);
     setCampos({ nome: p.entregador?.nome ?? '', telefone: p.entregador?.telefone ?? '', veiculo: 'MOTORCYCLE' });
     if (acao?.pede === 'motivo') {
       setMotivos(null);
@@ -72,7 +81,7 @@ export function ModalPedido({
         .then(setMotivos)
         .catch((err) => {
           setMotivos([]);
-          notificar('erro', mensagemDe(err, 'Não foi possivel carregar os motivos.'));
+          notificar('erro', mensagemDe(err, 'Não foi possível carregar os motivos.'));
         });
     }
   }, [acao?.acao, p.id]);
@@ -88,6 +97,7 @@ export function ModalPedido({
       notificar('ok', `Pedido #${p.codigoCurto}: ação enviada.`);
       setAcao(null);
       setCampos({});
+      setDigitou(false);
       await aoRecarregar();
     } catch (err) {
       // Recusa definitiva do Hub fica em cache por 24 h: a proxima tentativa precisa de outra intencao
@@ -104,6 +114,21 @@ export function ModalPedido({
   }
 
   const clicar = (a: AcaoDisponivel) => (a.pede ? setAcao(a) : void executar(a.acao));
+
+  /** Aceitar cancelamento ou reembolso encerra a solicitacao e nao volta atras. */
+  const confirmarAceite = (rotulo: string, nome: string, idPendencia: unknown, extra: Record<string, unknown> = {}) =>
+    pedir({
+      titulo: `${rotulo}?`,
+      confirmar: rotulo,
+      aviso: 'A resposta vai para a plataforma e não pode ser desfeita.',
+      perigo: true,
+      conteudo: (
+        <span>
+          Pedido #{p.codigoCurto} ({nomeCanal(p.plataforma)}), {p.clienteNome}, {formatarMoeda(p.totalReal)}.
+        </span>
+      ),
+      acao: () => executar(nome, { ...extra, idPendencia }),
+    });
 
   async function consultar(tipo: 'rastreio' | 'sacola') {
     try {
@@ -133,8 +158,8 @@ export function ModalPedido({
   const alternativa = contrapropostas.find((a) => a.id === campo('alternativeId'));
 
   return (
-    <div className="modal-backdrop" onClick={aoFechar}>
-      <div className="modal-panel wide" onClick={(e) => e.stopPropagation()}>
+    <Modal aoFechar={descarte.fechar}>
+      <div className="modal-panel wide" role="dialog" aria-modal="true" aria-label={`Pedido #${p.codigoCurto}`}>
         <div className="modal-head">
           <div className="linha">
             <h2 style={{ margin: 0, fontSize: 18 }}>Pedido #{p.codigoCurto}</h2>
@@ -148,7 +173,7 @@ export function ModalPedido({
             <button type="button" className="btn btn-sm" onClick={() => window.print()}>
               Imprimir comanda
             </button>
-            <button type="button" className="btn-icon" onClick={aoFechar} title="Fechar">
+            <button type="button" className="btn-icon" onClick={descarte.fechar} title="Fechar" aria-label="Fechar">
               <IconeFechar />
             </button>
           </div>
@@ -177,7 +202,7 @@ export function ModalPedido({
               {disputa.alternativas.length ? <pre className="code-block">{JSON.stringify(disputa.alternativas, null, 2)}</pre> : null}
               <input className="input input-sm" placeholder="Resposta ao cliente (opcional)" value={campo('texto')} onChange={(e) => definir('texto', e.target.value)} />
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptCancellation', { texto: campo('texto'), idPendencia: disputa.id })}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarAceite('Aceitar solicitação', 'acceptCancellation', disputa.id, { texto: campo('texto') })}>
                   Aceitar solicitação
                 </button>
                 <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => executar('denyCancellation', { texto: campo('texto'), idPendencia: disputa.id })}>
@@ -231,7 +256,7 @@ export function ModalPedido({
                 ))}
               </select>
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptCancellation', { idPendencia: cancelamentoCliente.applyId })}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarAceite('Aceitar cancelamento', 'acceptCancellation', cancelamentoCliente.applyId)}>
                   Aceitar cancelamento
                 </button>
                 <button
@@ -272,7 +297,7 @@ export function ModalPedido({
               </select>
               <input className="input input-sm" placeholder="Explicação (opcional)" value={campo('explicacao')} onChange={(e) => definir('explicacao', e.target.value)} />
               <div className="linha">
-                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => executar('acceptRefund', { idPendencia: reembolso.applyId })}>
+                <button type="button" className="btn btn-sm btn-danger" disabled={ocupado} onClick={() => confirmarAceite('Aceitar reembolso', 'acceptRefund', reembolso.applyId)}>
                   Aceitar reembolso
                 </button>
                 <button
@@ -572,7 +597,9 @@ export function ModalPedido({
       </div>
 
       <Comanda pedido={p} />
-    </div>
+      {dialogo}
+      {descarte.pergunta}
+    </Modal>
   );
 }
 

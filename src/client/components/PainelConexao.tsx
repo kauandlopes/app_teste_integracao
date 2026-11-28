@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ApiErro, Sessao, erpApi, extrairStatusIfood } from '../api';
-import { Confirmacao } from './Comuns';
-import { IconeAtualizar } from './Icones';
+import { Confirmacao, Mudanca, useConfirmar } from './Comuns';
+import { IconeAtualizar, IconeFechar } from './Icones';
 import { MenuTresPontos } from './MenuTresPontos';
+import { Modal } from './Modal';
 
 interface LojaLivre {
   plataforma: string;
@@ -64,6 +65,7 @@ export function PainelConexao({
   const [enviandoPausa, setEnviandoPausa] = useState(false);
   const [mostrarDetalhesTecnicos, setMostrarDetalhesTecnicos] = useState(false);
   const [mostrarHomologacaoHub, setMostrarHomologacaoHub] = useState(false);
+  const { pedir, dialogo } = useConfirmar();
 
   async function carregarEntregas(avisar = false) {
     if (!conectada) return setEntregas([]);
@@ -167,6 +169,53 @@ export function PainelConexao({
     }
   }
 
+  const noCanal = (p: string) => (p === '99FOOD' ? 'na 99Food' : 'no iFood');
+  const doCanal = (p: string) => (p === '99FOOD' ? 'da 99Food' : 'do iFood');
+  const lojaAtual = (p: string) => sessao.lojas.find((l) => l.plataforma === p && l.estado === 'ATIVA');
+  const empresa = `${sessao.nomeLoja || 'Empresa'} (CNPJ ${sessao.cnpj})`;
+
+  const confirmarVinculo = (l: LojaLivre) => {
+    const atual = lojaAtual(l.plataforma);
+    pedir({
+      titulo: `Vincular loja ${doCanal(l.plataforma)}?`,
+      confirmar: 'Vincular loja',
+      aviso: 'Pedidos e cardápio deste ERP passam a valer na loja escolhida.',
+      conteudo: (
+        <>
+          <span>{empresa}</span>
+          <Mudanca rotulo={`Loja ${noCanal(l.plataforma)}`} de={atual ? atual.nome || atual.loja : 'nenhuma'} para={`${l.nome || l.loja}${l.ambiente === 'TESTE' ? ' (teste)' : ''}`} />
+          <span className="suave">ID {String(l.loja)}</span>
+        </>
+      ),
+      acao: () => vincular(l.plataforma, String(l.loja)),
+    });
+  };
+
+  const confirmarDesvinculo = (plataforma: string, loja: string, rotulo: string) =>
+    pedir({
+      titulo: `Desvincular loja ${doCanal(plataforma)}?`,
+      confirmar: 'Desvincular',
+      aviso: 'Pedidos e cardápio desta plataforma param de funcionar neste ERP.',
+      perigo: true,
+      conteudo: (
+        <>
+          <span>{empresa}</span>
+          <Mudanca rotulo={`Loja ${noCanal(plataforma)}`} de={rotulo} para="nenhuma" />
+        </>
+      ),
+      acao: () => liberar(plataforma, loja),
+    });
+
+  async function gerarNovoToken() {
+    try {
+      await erpApi.recuperarToken();
+      await aoAtualizarSessao();
+      notificar('ok', 'Novo token da loja gravado. O anterior deixou de valer.');
+    } catch (err) {
+      notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao recuperar token.');
+    }
+  }
+
   async function enviarPausa() {
     setEnviandoPausa(true);
     if (confirmarPausa?.remover) await removerPausa(confirmarPausa.remover.id);
@@ -218,15 +267,15 @@ export function PainelConexao({
               },
               {
                 rotulo: 'Gerar novo token desta conexão (invalida o anterior)',
-                aoClicar: async () => {
-                  try {
-                    await erpApi.recuperarToken();
-                    await aoAtualizarSessao();
-                    notificar('ok', 'Novo token da loja gravado. O anterior deixou de valer.');
-                  } catch (err) {
-                    notificar('erro', err instanceof ApiErro ? err.message : 'Erro ao recuperar token.');
-                  }
-                },
+                aoClicar: () =>
+                  pedir({
+                    titulo: 'Gerar novo token desta conexão?',
+                    confirmar: 'Gerar novo token',
+                    aviso: 'O token anterior deixa de valer na hora, inclusive em outros sistemas que o usem.',
+                    perigo: true,
+                    conteudo: <span>{empresa}</span>,
+                    acao: gerarNovoToken,
+                  }),
               },
               { rotulo: 'Abrir logs HTTP SQLite', separadorAntes: true, aoClicar: aoAbrirLogs },
             ]}
@@ -335,8 +384,8 @@ export function PainelConexao({
                     <button
                       type="button"
                       className="btn btn-sm btn-danger"
-                      disabled={ocupadoLoja === l.loja}
-                      onClick={() => liberar(l.plataforma, l.loja)}
+                      disabled={!!ocupadoLoja}
+                      onClick={() => confirmarDesvinculo(l.plataforma, l.loja, l.nome || l.loja)}
                     >
                       Desvincular
                     </button>
@@ -358,8 +407,8 @@ export function PainelConexao({
       </div>
 
       {modalPlat ? (
-        <div className="modal-backdrop" onClick={() => setModalPlat(null)}>
-          <div className="modal-panel" style={{ maxWidth: 520, width: '92%' }} onClick={(e) => e.stopPropagation()}>
+        <Modal aoFechar={() => setModalPlat(null)}>
+          <div className="modal-panel" role="dialog" aria-modal="true" aria-label="Lojas disponíveis" style={{ maxWidth: 520 }}>
             <div className="modal-head">
               <div>
                 <h3 style={{ margin: 0, fontSize: 16 }}>
@@ -369,8 +418,8 @@ export function PainelConexao({
                   Escolha qual loja autorizada deseja vincular a este CNPJ.
                 </span>
               </div>
-              <button type="button" className="btn-icon" onClick={() => setModalPlat(null)}>
-                ×
+              <button type="button" className="btn-icon" onClick={() => setModalPlat(null)} title="Fechar" aria-label="Fechar">
+                <IconeFechar />
               </button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -417,8 +466,8 @@ export function PainelConexao({
                         <button
                           type="button"
                           className="btn btn-sm btn-primary"
-                          disabled={ocupadoLoja === l.loja}
-                          onClick={() => void vincular(l.plataforma, String(l.loja))}
+                          disabled={!!ocupadoLoja}
+                          onClick={() => confirmarVinculo(l)}
                         >
                           {ocupadoLoja === l.loja ? 'Vinculando...' : 'Vincular'}
                         </button>
@@ -429,8 +478,9 @@ export function PainelConexao({
               )}
             </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
+      {dialogo}
 
       {/* Passo 3: Status e Pausas Programadas */}
       <div className="card">

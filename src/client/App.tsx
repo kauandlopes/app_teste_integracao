@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { erpApi, extrairStatus99, extrairStatusIfood, Fila, mensagemDe, nomeCanal, PedidoErp, ProdutoCadastrado, Sessao } from './api';
+import { Confirmacao } from './components/Comuns';
 import { DadosLoja } from './components/DadosLoja';
 import { GestorCatalogo } from './components/GestorCatalogo';
 import { IconeTema } from './components/Icones';
@@ -53,6 +54,10 @@ export function App() {
   const [logsAberto, setLogsAberto] = useState(false);
   const [reconectando, setReconectando] = useState(false);
   const [toasts, setToasts] = useState<Array<{ id: number; tipo: 'ok' | 'erro'; msg: string }>>([]);
+  /** Alteracao digitada em "Dados da loja": sair da aba apagaria, entao pergunta antes. */
+  const rascunhoLoja = useRef(false);
+  const [abaPedida, setAbaPedida] = useState<Aba | null>(null);
+  const [saindo, setSaindo] = useState(false);
   const somRef = useRef(somLigado);
   somRef.current = somLigado;
 
@@ -195,7 +200,13 @@ export function App() {
     }
   }
 
+  const irPara = (destino: Aba) => (destino !== aba && rascunhoLoja.current ? setAbaPedida(destino) : setAba(destino));
+  const mudarRascunho = useCallback((tem: boolean) => {
+    rascunhoLoja.current = tem;
+  }, []);
+
   async function sair(limparDados: boolean) {
+    setSaindo(false);
     await erpApi.sair(limparDados);
     if (limparDados) setPedidos([]);
     setStatusLoja(null);
@@ -263,7 +274,7 @@ export function App() {
           </div>
           <nav className="nav-tabs" aria-label="Navegação principal">
             {ABAS.map(([chave, rotulo]) => (
-              <button key={chave} type="button" className={`nav-tab${aba === chave ? ' active' : ''}`} onClick={() => setAba(chave)}>
+              <button key={chave} type="button" className={`nav-tab${aba === chave ? ' active' : ''}`} onClick={() => irPara(chave)}>
                 {rotulo}
                 {chave === 'pedidos' ? <span className={`pill ${novos || urgentes ? 'pill-err' : ''}`}>{ativos}</span> : null}
                 {chave === 'catalogo' ? <span className="pill">{produtos.length}</span> : null}
@@ -293,7 +304,7 @@ export function App() {
             titulo="Sessão"
             itens={[
               { rotulo: 'Sair e trocar token', aoClicar: () => void sair(false) },
-              { rotulo: 'Sair, desconectar e limpar pedidos', perigo: true, separadorAntes: true, aoClicar: () => void sair(true) },
+              { rotulo: 'Sair, desconectar e limpar pedidos', perigo: true, separadorAntes: true, aoClicar: () => setSaindo(true) },
             ]}
           />
         </div>
@@ -329,7 +340,7 @@ export function App() {
             aoAbrirLogs={() => setLogsAberto(true)}
           />
         ) : null}
-        {aba === 'catalogo' ? <GestorCatalogo produtos={produtos} notificar={notificar} aoRecarregar={carregarProdutos} aoAbrirLogs={() => setLogsAberto(true)} /> : null}
+        {aba === 'catalogo' ? <GestorCatalogo lojas={sessao.lojas} produtos={produtos} notificar={notificar} aoRecarregar={carregarProdutos} aoAbrirLogs={() => setLogsAberto(true)} /> : null}
         {aba === 'lojas' ? (
           <PainelConexao
             sessao={sessao}
@@ -344,12 +355,34 @@ export function App() {
         ) : null}
         {aba === 'dados' ? (
           // A chave descarta o que foi lido se a conexao ou as lojas mudarem
-          <DadosLoja key={`${sessao.conexaoId}|${sessao.lojas.map((l) => `${l.plataforma}:${l.loja}`).sort().join()}`} sessao={sessao} notificar={notificar} aoAtualizarStatusLoja={carregarStatusLoja} />
+          <DadosLoja key={`${sessao.conexaoId}|${sessao.lojas.map((l) => `${l.plataforma}:${l.loja}`).sort().join()}`} sessao={sessao} notificar={notificar} aoAtualizarStatusLoja={carregarStatusLoja} aoMudarRascunho={mudarRascunho} />
         ) : null}
         {aba === 'tokens' ? <TokensRotas notificar={notificar} /> : null}
         {aba === 'docs' ? <PainelDocumentacao sessao={sessao} notificar={notificar} /> : null}
       </main>
 
+      {abaPedida ? (
+        <Confirmacao
+          titulo="Sair sem enviar?"
+          confirmar="Descartar e sair"
+          cancelar="Continuar editando"
+          aviso=""
+          perigo
+          aoConfirmar={() => {
+            rascunhoLoja.current = false;
+            setAba(abaPedida);
+            setAbaPedida(null);
+          }}
+          aoCancelar={() => setAbaPedida(null)}
+        >
+          <span>As alterações digitadas em "Dados da loja" não foram enviadas.</span>
+        </Confirmacao>
+      ) : null}
+      {saindo ? (
+        <Confirmacao titulo="Sair, desconectar e limpar pedidos?" confirmar="Sair e limpar" aviso="Não é possível desfazer." perigo aoConfirmar={() => void sair(true)} aoCancelar={() => setSaindo(false)}>
+          <span>Apaga deste ERP os pedidos, os eventos, o CNPJ conectado e os tokens salvos.</span>
+        </Confirmacao>
+      ) : null}
       {logs}
       {avisosFlutuantes}
     </div>

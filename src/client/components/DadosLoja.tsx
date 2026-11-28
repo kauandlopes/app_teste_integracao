@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AcaoLoja,
   AlteracaoLoja,
@@ -17,7 +17,8 @@ import {
   Sessao,
   TelefoneLoja,
 } from '../api';
-import { Confirmacao, Contagem } from './Comuns';
+import { erroDoDia, normalizarHora } from '../../shared/horarios';
+import { Confirmacao, Contagem, Mudanca, useAvisoDeSaida } from './Comuns';
 import { IconeAtualizar } from './Icones';
 
 /** Dados e funcionamento da loja nas duas plataformas (loja/dados e loja/funcionamento do Hub). */
@@ -56,7 +57,9 @@ const ESTADOS: Record<string, [string, string]> = {
 
 const lista = (campos: string[]) => campos.map((c) => CAMPOS[c] ?? c).join(', ');
 const doDia = (horarios: HorarioDia[], dia: number) => horarios.find((h) => h.dia === dia)?.faixas ?? [];
-const textoFaixas = (faixas: HorarioDia['faixas']) => (faixas.length ? faixas.map((f) => `${f.inicio} às ${f.fim}`).join(', ') : 'fechado');
+const textoFaixas = (faixas: HorarioDia['faixas']) => (faixas.length ? [...faixas].sort((a, b) => a.inicio.localeCompare(b.inicio)).map((f) => `${f.inicio} às ${f.fim}`).join(', ') : 'fechado');
+const horaCurta = (v: number | string) => new Date(v).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const textoTelefones = (t: TelefoneLoja[]) => (t.length ? t.map(textoTelefone).join(', ') : 'não informado');
 const textoTelefone = (t: TelefoneLoja) => `+${t.ddi} ${t.numero} (${t.tipo === 'FIXO' ? 'fixo' : 'celular'})`;
 /** Horario do iFood vem no relogio da loja, sem fuso: mostra como veio. */
 const dataHora = (v?: string | null) => (v ? v.replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d).*$/, '$2/$1 $3') : '');
@@ -71,7 +74,11 @@ function AvisoErro({ erro }: { erro: ErroLoja }) {
   );
 }
 
-function CartaoLoja({ titulo, loja, consultando }: { titulo: string; loja?: LojaPlataforma; consultando: boolean }) {
+/** Loja como a tela a guarda: quando foi consultada e se os valores sao de uma consulta anterior. */
+type LojaLida = LojaPlataforma & { consultadoEm?: number; anterior?: boolean };
+type Consulta = { plataformas: Partial<Record<CanalPublicacao, LojaLida>> };
+
+function CartaoLoja({ titulo, loja, consultando }: { titulo: string; loja?: LojaLida; consultando: boolean }) {
   const d = loja?.dados;
   const linha = (rotulo: string, valor: React.ReactNode) => (
     <div className="ficha-linha">
@@ -91,6 +98,15 @@ function CartaoLoja({ titulo, loja, consultando }: { titulo: string; loja?: Loja
           Não foi possível ler {f.secao}: {f.erro}
         </div>
       ))}
+      {d && loja.consultadoEm ? (
+        <span className={loja.anterior ? 'observacao' : 'suave'}>
+          {loja.anterior
+            ? `Sem resposta agora: abaixo, a consulta das ${horaCurta(loja.consultadoEm)}.`
+            : loja.lidoEm
+              ? `Leitura guardada: a plataforma respondeu às ${horaCurta(loja.lidoEm)}.`
+              : `Consultado às ${horaCurta(loja.consultadoEm)}.`}
+        </span>
+      ) : null}
       {d ? (
         <>
           {linha('Situação', d.situacao ? [d.situacao.aberta === null ? null : d.situacao.aberta ? 'Aberta' : 'Fechada', d.situacao.titulo, ...(d.situacao.motivos ?? []).map((m) => m.titulo)].filter(Boolean).join(' · ') : null)}
@@ -135,6 +151,7 @@ function CartaoLoja({ titulo, loja, consultando }: { titulo: string; loja?: Loja
 function Resultado({ resultado }: { resultado: ResultadoLoja }) {
   return (
     <div className="pilha" role="status">
+      <span className="suave">Resultado do último envio. Os quadros no alto são da última consulta: use "Consultar de novo" para conferir.</span>
       {Object.entries(resultado.plataformas).map(([plataforma, r]) => {
         // Campos enviados na mesma chamada falham juntos: o motivo aparece uma vez
         const grupos = new Map<string, { nomes: string[]; campo: CampoAlterado }>();
@@ -173,30 +190,44 @@ function Resultado({ resultado }: { resultado: ResultadoLoja }) {
 
 interface PropsFormulario {
   ativas: CanalPublicacao[];
-  consulta: ConsultaLoja | null;
+  consulta: Consulta | null;
   rotulo: (p: CanalPublicacao) => string;
   notificar: Notificar;
 }
 
-/** Envio comum aos dois formularios: resultado por plataforma e mensagem de erro. */
+/** Envio comum aos dois formularios: resultado por plataforma, mensagem de erro e espera pedida pela plataforma. */
 function useEnvio(notificar: Notificar) {
   const [resultado, setResultado] = useState<ResultadoLoja | null>(null);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  /** Ate quando cada plataforma pediu para esperar. */
+  const [esperas, setEsperas] = useState<Partial<Record<CanalPublicacao, number>>>({});
+  function receber(r: ResultadoLoja) {
+    setResultado(r);
+    setEsperas((atuais) => {
+      const novas = { ...atuais };
+      for (const [p, v] of Object.entries(r.plataformas)) {
+        const segundos = Math.max(0, v.erro?.retryAfterSegundos ?? 0, ...Object.values(v.campos ?? {}).map((c) => c.erro?.retryAfterSegundos ?? 0));
+        if (segundos) novas[p as CanalPublicacao] = Date.now() + segundos * 1000;
+        else delete novas[p as CanalPublicacao];
+      }
+      return novas;
+    });
+  }
   async function enviar(chamada: () => Promise<ResultadoLoja>): Promise<ResultadoLoja | null> {
     setEnviando(true);
     setErro('');
     setResultado(null);
     try {
       const r = await chamada();
-      setResultado(r);
+      receber(r);
       if (r.ok === false) notificar('erro', 'Aplicado em parte. Veja o resultado por plataforma.');
       else notificar('ok', 'Alteração enviada. Veja o resultado por plataforma.');
       return r;
     } catch (err) {
       const mensagem = mensagemDe(err, 'Não foi possível enviar. Consulte a loja antes de repetir.');
       const plataformas = plataformasDoErro(err);
-      if (plataformas) setResultado({ plataformas });
+      if (plataformas) receber({ plataformas });
       setErro(mensagem);
       notificar('erro', mensagem);
       return null;
@@ -204,7 +235,17 @@ function useEnvio(notificar: Notificar) {
       setEnviando(false);
     }
   }
-  return { resultado, erro, setErro, enviando, enviar };
+  /** Aviso no dialogo de confirmacao enquanto a plataforma escolhida ainda pede espera. */
+  const avisoDeEspera = (plataformas: CanalPublicacao[]) =>
+    plataformas.map((p) => {
+      const segundos = Math.ceil(((esperas[p] ?? 0) - Date.now()) / 1000);
+      return segundos > 0 ? (
+        <span className="observacao" key={p}>
+          <Contagem segundos={segundos} antes={`${nomeCanal(p)} pediu espera. Pode enviar em`} depois={`${nomeCanal(p)}: espera encerrada.`} />
+        </span>
+      ) : null;
+    });
+  return { resultado, erro, setErro, enviando, enviar, avisoDeEspera };
 }
 
 function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: PropsFormulario & { aoConcluir: () => void }) {
@@ -215,7 +256,7 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
   const [acrescimo, setAcrescimo] = useState('15');
   const [automatica, setAutomatica] = useState(true);
   const [pendente, setPendente] = useState<{ comando: ComandoLoja; plataformas: CanalPublicacao[] } | null>(null);
-  const { resultado, erro, setErro, enviando, enviar } = useEnvio(notificar);
+  const { resultado, erro, setErro, enviando, enviar, avisoDeEspera } = useEnvio(notificar);
 
   const selecionadas = alvo === 'TODAS' ? ativas : [alvo];
   const permite = (p: CanalPublicacao, a: AcaoLoja) => (consulta?.plataformas[p]?.funcionamento ?? ACOES_PADRAO[p]).includes(a);
@@ -250,21 +291,37 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
     if (r) aoConcluir();
   }
 
-  const efeitos = (c: ComandoLoja, plataformas: CanalPublicacao[]) => {
-    const em = (p: CanalPublicacao) => plataformas.includes(p);
-    return [
-      c.acao === 'PAUSAR' ? (c.ateFimDoDia ? 'Pausa até o fim do dia.' : `Pausa de ${c.duracaoMinutos} minutos.`) : '',
-      c.acao === 'OCUPADO' ? `Por ${c.duracaoMinutos} minutos, com mais ${c.acrescimoPreparoMinutos} minutos de preparo.` : '',
-      c.acao === 'FECHAR' && em('IFOOD') ? 'No iFood o fechamento é uma pausa de 7 dias. Para manter, use Abrir e Fechar de novo antes de vencer.' : '',
-      c.acao === 'FECHAR' && em('99FOOD') ? 'Na 99Food a loja fica fechada até um novo Abrir.' : '',
-      c.acao === 'ABRIR' && em('IFOOD') ? 'No iFood as pausas em vigor são removidas. Fora do horário a loja continua fechada.' : '',
-    ].filter(Boolean);
+  /** O que a ultima consulta informou e o que passa a valer, por plataforma. */
+  const mudancaEm = (c: ComandoLoja, p: CanalPublicacao) => {
+    const d = consulta?.plataformas[p]?.dados;
+    const emVigor = d?.pausas?.filter((x) => x.ativa !== false).length ?? 0;
+    if (c.acao === 'OCUPADO' || c.acao === 'NORMAL') {
+      return {
+        rotulo: 'Modo ocupado',
+        de: d?.modoOcupado ? (d.modoOcupado.ativo ? 'ativo' : 'desligado') : 'não consultado',
+        para: c.acao === 'NORMAL' ? 'desligado' : `ativo por ${c.duracaoMinutos} minutos, com mais ${c.acrescimoPreparoMinutos} minutos de preparo`,
+        nota: '',
+      };
+    }
+    const aberta = d?.situacao?.aberta;
+    const de = [aberta === true ? 'aberta' : aberta === false ? 'fechada' : (d?.situacao?.titulo ?? 'não consultada'), emVigor ? `${emVigor} pausa(s)` : ''].filter(Boolean).join(', ');
+    const ifood = p === 'IFOOD';
+    const textos: Record<'ABRIR' | 'FECHAR' | 'PAUSAR', [string, string]> = {
+      ABRIR: ifood
+        ? ['aberta dentro do horário', 'No iFood as pausas em vigor são removidas. Fora do horário a loja continua fechada.']
+        : ['aberta', `${c.aberturaAutomatica === false ? 'Não abre' : 'Abre'} sozinha no horário. A 99Food confirma a situação depois.`],
+      FECHAR: ifood
+        ? ['fechada por 7 dias', 'No iFood o fechamento é uma pausa de 7 dias. Para manter, use Abrir e Fechar de novo antes de vencer.']
+        : ['fechada', 'Na 99Food a loja fica fechada até um novo Abrir.'],
+      PAUSAR: [c.ateFimDoDia ? 'pausada até o fim do dia' : `pausada por ${c.duracaoMinutos} minutos`, ''],
+    };
+    return { rotulo: 'Situação', de, para: textos[c.acao][0], nota: textos[c.acao][1] };
   };
 
   return (
     <div className="card pilha">
       <h3 style={{ margin: 0, fontSize: 15 }}>Funcionamento</h3>
-      <form className="linha linha-campos" onSubmit={revisar}>
+      <form className="linha linha-campos" onSubmit={revisar} onChange={() => setErro('')}>
         <label className="field">
           <span className="field-label">Loja</span>
           <select className="select input-sm" value={alvo} onChange={(e) => setAlvo(e.target.value as 'TODAS' | CanalPublicacao)}>
@@ -319,7 +376,7 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
           </label>
         ) : null}
         <button type="submit" className="btn btn-sm btn-primary" disabled={enviando}>
-          Revisar e enviar
+          Revisar ação
         </button>
       </form>
       {erro ? (
@@ -337,12 +394,18 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
           aoConfirmar={() => void confirmar()}
           aoCancelar={() => setPendente(null)}
         >
-          {pendente.plataformas.map((p) => (
-            <strong key={p}>{rotulo(p)}</strong>
-          ))}
-          {efeitos(pendente.comando, pendente.plataformas).map((t) => (
-            <span key={t}>{t}</span>
-          ))}
+          {pendente.plataformas.map((p) => {
+            const m = mudancaEm(pendente.comando, p);
+            const lida = consulta?.plataformas[p]?.consultadoEm;
+            return (
+              <div className="bloco-loja" key={p}>
+                <strong>{rotulo(p)}</strong>
+                <Mudanca rotulo={`${m.rotulo}${lida ? ` (consulta das ${horaCurta(lida)})` : ''}`} de={m.de} para={m.para} />
+                {m.nota ? <span>{m.nota}</span> : null}
+              </div>
+            );
+          })}
+          {avisoDeEspera(pendente.plataformas)}
           {selecionadas
             .filter((p) => !pendente.plataformas.includes(p))
             .map((p) => (
@@ -358,46 +421,191 @@ function Funcionamento({ ativas, consulta, rotulo, notificar, aoConcluir }: Prop
 
 type Semana = HorarioDia['faixas'][];
 const paraSemana = (horarios?: HorarioDia[] | null): Semana => DIAS.map((_, i) => doDia(horarios ?? [], i + 1).map((f) => ({ ...f })));
-const hora = (t: string) => t.trim().replace(/^(\d):/, '0$1:');
-const INICIO = /^([01]\d|2[0-3]):[0-5]\d$/;
-const FIM = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
 const normalizarTelefones = (t: TelefoneLoja[]) => t.map((x) => ({ ddi: x.ddi.replace(/\D/g, ''), numero: x.numero.replace(/\D/g, ''), tipo: x.tipo }));
+const COPIAS: Array<[string, string]> = [
+  ['0123456', 'Todos os dias'],
+  ['01234', 'Segunda a sexta'],
+  ['56', 'Sábado e domingo'],
+  ...DIAS.map((nome, i): [string, string] => [String(i), nome]),
+];
 
-function Alteracao({ ativas, consulta, rotulo, notificar, versao }: PropsFormulario & { versao: number }) {
+/** Semana editavel: dia fechado, copia entre dias com desfazer e erro no proprio dia. */
+function EditorSemana({ semana, revisado, mudar }: { semana: Semana; revisado: boolean; mudar: (s: Semana) => void }) {
+  /** Faixas de um dia fechado voltam se o operador reabrir. */
+  const guardadas = useRef<Semana>([]);
+  const [copia, setCopia] = useState<{ texto: string; antes: Semana; depois: Semana } | null>(null);
+  const mudarDia = (dia: number, faixas: HorarioDia['faixas']) => mudar(semana.map((f, i) => (i === dia ? faixas : f)));
+  const mudarHora = (dia: number, i: number, parte: { inicio?: string; fim?: string }) => mudarDia(dia, semana[dia].map((x, j) => (j === i ? { ...x, ...parte } : x)));
+
+  function abrirOuFechar(dia: number, aberto: boolean) {
+    if (!aberto) guardadas.current[dia] = semana[dia];
+    mudarDia(dia, aberto ? (guardadas.current[dia] ?? [{ inicio: '', fim: '' }]) : []);
+  }
+
+  function copiar(origem: number, alvos: string) {
+    const destinos = [...alvos].map(Number).filter((d) => d !== origem);
+    if (!destinos.length) return;
+    const depois = semana.map((f, i) => (destinos.includes(i) ? semana[origem].map((x) => ({ ...x })) : f));
+    setCopia({ texto: `${DIAS[origem]} (${textoFaixas(semana[origem])}) copiado para ${destinos.map((d) => DIAS[d]).join(', ')}.`, antes: semana, depois });
+    mudar(depois);
+  }
+
+  const fechados = DIAS.filter((_, i) => !semana[i].length);
+
+  return (
+    <>
+      {semana.map((faixas, dia) => {
+        const completo = faixas.every((f) => f.inicio.length >= 4 && f.fim.length >= 4);
+        const erro = revisado || completo ? erroDoDia(faixas) : '';
+        return (
+          <div className="dia-horario" key={DIAS[dia]}>
+            <div className="dia-nome">
+              <strong>{DIAS[dia]}</strong>
+              <label className="chave">
+                <input type="checkbox" aria-label={`${DIAS[dia]} aberto`} checked={faixas.length > 0} onChange={(e) => abrirOuFechar(dia, e.target.checked)} />
+                Aberto
+              </label>
+            </div>
+            <div className="pilha">
+              {faixas.map((f, i) => (
+                <div className="faixa" key={i}>
+                  {(['inicio', 'fim'] as const).map((campo) => (
+                    <React.Fragment key={campo}>
+                      {campo === 'fim' ? <span className="suave">às</span> : null}
+                      <input
+                        className="input input-sm"
+                        aria-label={`${DIAS[dia]}, ${campo === 'inicio' ? 'início' : 'fim'}`}
+                        aria-invalid={!!erro}
+                        inputMode="numeric"
+                        placeholder={campo === 'inicio' ? '11:00' : '23:00'}
+                        maxLength={5}
+                        value={f[campo]}
+                        onChange={(e) => mudarHora(dia, i, { [campo]: e.target.value })}
+                        onBlur={() => {
+                          const completa = normalizarHora(f[campo]);
+                          if (completa !== f[campo]) mudarHora(dia, i, { [campo]: completa });
+                        }}
+                      />
+                    </React.Fragment>
+                  ))}
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => mudarDia(dia, faixas.filter((_, j) => j !== i))}>
+                    Remover
+                  </button>
+                </div>
+              ))}
+              <div className="linha">
+                {!faixas.length ? <span className="observacao">Fechado o dia todo</span> : null}
+                {faixas.length && faixas.length < 10 ? (
+                  <button type="button" className="btn btn-sm" onClick={() => mudarDia(dia, [...faixas, { inicio: '', fim: '' }])}>
+                    Adicionar faixa
+                  </button>
+                ) : null}
+                <select className="select input-sm copiar-dia" aria-label={`Copiar ${DIAS[dia]} para`} value="" onChange={(e) => copiar(dia, e.target.value)}>
+                  <option value="">Copiar para...</option>
+                  {COPIAS.filter(([v]) => v !== String(dia)).map(([v, nome]) => (
+                    <option key={v} value={v}>
+                      {nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {erro ? (
+                <span className="observacao" role="alert">
+                  {DIAS[dia]}: {erro}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+      {copia && copia.depois === semana ? (
+        <div className="banner linha" role="status">
+          <span style={{ flex: 1, minWidth: 200 }}>{copia.texto}</span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              mudar(copia.antes);
+              setCopia(null);
+            }}
+          >
+            Desfazer cópia
+          </button>
+        </div>
+      ) : null}
+      {fechados.length === 7 ? (
+        <div className="banner banner-warn">Todos os dias estão fechados, e uma semana vazia não é enviada. Para fechar a loja, use Funcionamento.</div>
+      ) : fechados.length ? (
+        <div className="banner banner-warn">Ao enviar, a loja fica fechada em: {fechados.join(', ')}.</div>
+      ) : null}
+    </>
+  );
+}
+
+/** Enviado com sucesso e ainda nao relido: a plataforma demora a devolver o valor novo. */
+type Aplicado = Partial<Record<CanalPublicacao, { em: number; horarios?: HorarioDia[]; preparo?: string; telefones?: TelefoneLoja[] }>>;
+
+function Alteracao({ ativas, consulta, rotulo, notificar, versao, aoMudarRascunho }: PropsFormulario & { versao: number; aoMudarRascunho: (tem: boolean) => void }) {
   const [desmarcadas, setDesmarcadas] = useState<CanalPublicacao[]>([]);
   const [comHorarios, setComHorarios] = useState(false);
   const [fonte, setFonte] = useState<CanalPublicacao>('IFOOD');
+  const [trocarFonte, setTrocarFonte] = useState<CanalPublicacao | null>(null);
+  const [revisado, setRevisado] = useState(false);
   // null = o operador ainda nao editou: mostra o que a plataforma informou
   const [semanaEditada, setSemana] = useState<Semana | null>(null);
   const [preparoEditado, setPreparo] = useState<string | null>(null);
   const [telefonesEditados, setTelefones] = useState<TelefoneLoja[] | null>(null);
-  /** Enviado com sucesso e ainda nao relido: a plataforma demora a devolver o valor novo. */
-  const [aplicado, setAplicado] = useState<{ preparo?: string; telefones?: TelefoneLoja[] }>({});
+  const [aplicado, setAplicado] = useState<Aplicado>({});
   const [pendente, setPendente] = useState<{ dados: AlteracaoLoja; plataformas: CanalPublicacao[] } | null>(null);
-  const { resultado, erro, setErro, enviando, enviar } = useEnvio(notificar);
-  useEffect(() => setAplicado({}), [versao]);
+  const { resultado, erro, setErro, enviando, enviar, avisoDeEspera } = useEnvio(notificar);
+  // Uma leitura nova substitui o que foi aplicado; leitura anterior ao envio (ou sem resposta) nao
+  useEffect(() => {
+    setAplicado((atual) =>
+      Object.fromEntries(
+        Object.entries(atual).filter(([p, v]) => {
+          const l = consulta?.plataformas[p as CanalPublicacao];
+          return !l || l.anterior || (!!l.lidoEm && Date.parse(l.lidoEm) < v.em);
+        }),
+      ),
+    );
+  }, [versao]);
 
   const tem99 = ativas.includes('99FOOD');
   const d99 = consulta?.plataformas['99FOOD']?.dados;
-  const fontes = ativas.filter((p) => consulta?.plataformas[p]?.dados?.horarios);
+  const horariosDe = (p?: CanalPublicacao) => (p ? (aplicado[p]?.horarios ?? consulta?.plataformas[p]?.dados?.horarios) : null);
+  const fontes = ativas.filter((p) => horariosDe(p));
   const fonteAtual = fontes.includes(fonte) ? fonte : fontes[0];
-  const semana = semanaEditada ?? paraSemana(fonteAtual ? consulta?.plataformas[fonteAtual]?.dados?.horarios : null);
-  const basePreparo = aplicado.preparo ?? String(d99?.tempoPreparoMinutos ?? '');
+  const semanaBase = paraSemana(horariosDe(fonteAtual));
+  const semana = semanaEditada ?? semanaBase;
+  const basePreparo = aplicado['99FOOD']?.preparo ?? String(d99?.tempoPreparoMinutos ?? '');
   const preparo = preparoEditado ?? basePreparo;
-  const baseTelefones = normalizarTelefones(aplicado.telefones ?? d99?.telefones ?? []);
+  const baseTelefones = normalizarTelefones(aplicado['99FOOD']?.telefones ?? d99?.telefones ?? []);
   const telefones = telefonesEditados ?? baseTelefones;
   const marcadas = ativas.filter((p) => !desmarcadas.includes(p));
+  const semanaMudou = semanaEditada !== null && JSON.stringify(semanaEditada) !== JSON.stringify(semanaBase);
+  const rascunho =
+    semanaMudou || (preparoEditado !== null && preparo.trim() !== basePreparo) || (telefonesEditados !== null && JSON.stringify(normalizarTelefones(telefonesEditados)) !== JSON.stringify(baseTelefones));
+  useAvisoDeSaida(rascunho);
+  useEffect(() => {
+    aoMudarRascunho(rascunho);
+    return () => aoMudarRascunho(false);
+  }, [rascunho]);
 
-  const mudarDia = (dia: number, faixas: HorarioDia['faixas']) => setSemana(semana.map((f, i) => (i === dia ? faixas : f)));
   const mudarTelefone = (i: number, parte: Partial<TelefoneLoja>) => setTelefones(telefones.map((t, j) => (j === i ? { ...t, ...parte } : t)));
+  const usarFonte = (p: CanalPublicacao) => {
+    setFonte(p);
+    setSemana(null);
+    setTrocarFonte(null);
+    setRevisado(false);
+  };
 
   function montar(): { dados: AlteracaoLoja; plataformas: CanalPublicacao[] } | string {
     const dados: AlteracaoLoja = {};
     if (!marcadas.length) return 'Marque pelo menos uma plataforma.';
     if (comHorarios) {
-      const dias = semana.map((faixas, i) => ({ dia: i + 1, faixas: faixas.map((f) => ({ inicio: hora(f.inicio), fim: hora(f.fim) })) })).filter((d) => d.faixas.length);
-      const ruim = dias.find((d) => d.faixas.some((f) => !INICIO.test(f.inicio) || !FIM.test(f.fim) || f.inicio === f.fim));
-      if (ruim) return `${DIAS[ruim.dia - 1]}: use horários no formato 11:00, com início diferente do fim.`;
+      const ruim = semana.findIndex((faixas) => erroDoDia(faixas));
+      if (ruim >= 0) return `${DIAS[ruim]}: ${erroDoDia(semana[ruim])}`;
+      const dias = semana.map((faixas, i) => ({ dia: i + 1, faixas: faixas.map((f) => ({ inicio: normalizarHora(f.inicio), fim: normalizarHora(f.fim) })) })).filter((d) => d.faixas.length);
       if (!dias.length) return 'Informe ao menos uma faixa de horário. Para fechar a loja, use Funcionamento.';
       dados.horarios = dias;
     }
@@ -420,6 +628,7 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao }: PropsFormula
 
   function revisar(e: React.FormEvent) {
     e.preventDefault();
+    setRevisado(true);
     const r = montar();
     if (typeof r === 'string') return setErro(r);
     setErro('');
@@ -432,154 +641,201 @@ function Alteracao({ ativas, consulta, rotulo, notificar, versao }: PropsFormula
     setPendente(null);
     if (!r) return;
     const entrou = (p: CanalPublicacao, campo: string) => r.plataformas[p]?.campos?.[campo]?.estado === 'APLICADO';
-    if (dados.horarios && plataformas.every((p) => entrou(p, 'horarios'))) setComHorarios(false);
-    if (dados.tempoPreparoMinutos !== undefined && entrou('99FOOD', 'tempoPreparoMinutos')) {
-      setAplicado((a) => ({ ...a, preparo: String(dados.tempoPreparoMinutos) }));
-      setPreparo(null);
+    const preparoEntrou = dados.tempoPreparoMinutos !== undefined && entrou('99FOOD', 'tempoPreparoMinutos');
+    const telefonesEntraram = !!dados.telefones && entrou('99FOOD', 'telefones');
+    setAplicado((atual) => {
+      const novo = { ...atual };
+      for (const p of plataformas) {
+        const campos = {
+          ...(dados.horarios && entrou(p, 'horarios') ? { horarios: dados.horarios } : {}),
+          ...(p === '99FOOD' && preparoEntrou ? { preparo: String(dados.tempoPreparoMinutos) } : {}),
+          ...(p === '99FOOD' && telefonesEntraram ? { telefones: dados.telefones } : {}),
+        };
+        if (Object.keys(campos).length) novo[p] = { ...novo[p], ...campos, em: Date.now() };
+      }
+      return novo;
+    });
+    if (dados.horarios && plataformas.every((p) => entrou(p, 'horarios'))) {
+      setComHorarios(false);
+      setSemana(null);
+      setFonte(plataformas[0]);
+      setRevisado(false);
     }
-    if (dados.telefones && entrou('99FOOD', 'telefones')) {
-      setAplicado((a) => ({ ...a, telefones: dados.telefones }));
-      setTelefones(null);
-    }
+    if (preparoEntrou) setPreparo(null);
+    if (telefonesEntraram) setTelefones(null);
+  }
+
+  /** Atual e novo de cada dia na plataforma; a semana enviada substitui a que esta la. */
+  function resumoHorarios(p: CanalPublicacao, novos: HorarioDia[]) {
+    const atuais = horariosDe(p);
+    const novo = (i: number) => textoFaixas(doDia(novos, i + 1));
+    const mudam = atuais ? DIAS.map((_, i) => i).filter((i) => textoFaixas(doDia(atuais, i + 1)) !== novo(i)) : [];
+    const fechados = DIAS.filter((_, i) => !doDia(novos, i + 1).length);
+    return (
+      <>
+        {atuais ? (
+          <>
+            {mudam.map((i) => (
+              <Mudanca key={i} rotulo={DIAS[i]} de={textoFaixas(doDia(atuais, i + 1))} para={novo(i)} />
+            ))}
+            <span className="suave">
+              {mudam.length ? `${7 - mudam.length} dia(s) sem mudança.` : 'Horários iguais aos da última consulta.'} A semana inteira é reenviada.
+            </span>
+          </>
+        ) : (
+          <div className="semana">
+            <span className="observacao">Horários atuais não lidos. Semana que será gravada:</span>
+            {DIAS.map((nome, i) => (
+              <span key={nome}>
+                {nome}: {novo(i)}
+              </span>
+            ))}
+          </div>
+        )}
+        {fechados.length ? <span className="observacao">Fica fechada em: {fechados.join(', ')}.</span> : null}
+      </>
+    );
   }
 
   return (
-    <form className="card pilha" onSubmit={revisar} noValidate>
-      <h3 style={{ margin: 0, fontSize: 15 }}>Alterar dados</h3>
-      <div className="linha">
-        <span className="field-label">Enviar para</span>
-        {ativas.map((p) => (
-          <label className="chave" key={p}>
-            <input type="checkbox" checked={!desmarcadas.includes(p)} onChange={(e) => setDesmarcadas(e.target.checked ? desmarcadas.filter((x) => x !== p) : [...desmarcadas, p])} />
-            {nomeCanal(p)}
-          </label>
-        ))}
-      </div>
-
-      <section className="secao">
-        <label className="chave" style={{ alignSelf: 'flex-start' }}>
-          <input type="checkbox" checked={comHorarios} onChange={(e) => setComHorarios(e.target.checked)} />
-          Alterar horários de funcionamento
-        </label>
-        {comHorarios ? (
-          <>
-            <p className="suave">Substitui a semana inteira: dia sem faixa fica fechado. Fim menor que o início passa da meia-noite; 24:00 é o fim do dia.</p>
-            {fontes.length > 1 ? (
-              <label className="field campo-curto">
-                <span className="field-label">Preencher com os horários de</span>
-                <select
-                  className="select input-sm"
-                  value={fonteAtual}
-                  onChange={(e) => {
-                    setFonte(e.target.value as CanalPublicacao);
-                    setSemana(null);
-                  }}
-                >
-                  {fontes.map((p) => (
-                    <option key={p} value={p}>
-                      {nomeCanal(p)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {!fontes.length ? <div className="banner banner-warn">Os horários atuais não foram lidos. Preencha a semana inteira antes de enviar.</div> : null}
-            {semana.map((faixas, dia) => (
-              <div className="dia-horario" key={DIAS[dia]}>
-                <strong>{DIAS[dia]}</strong>
-                <div className="pilha">
-                  {faixas.map((f, i) => (
-                    <div className="faixa" key={i}>
-                      <input className="input input-sm" aria-label={`${DIAS[dia]}, início`} placeholder="11:00" maxLength={5} value={f.inicio} onChange={(e) => mudarDia(dia, faixas.map((x, j) => (j === i ? { ...x, inicio: e.target.value } : x)))} />
-                      <span className="suave">às</span>
-                      <input className="input input-sm" aria-label={`${DIAS[dia]}, fim`} placeholder="23:00" maxLength={5} value={f.fim} onChange={(e) => mudarDia(dia, faixas.map((x, j) => (j === i ? { ...x, fim: e.target.value } : x)))} />
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => mudarDia(dia, faixas.filter((_, j) => j !== i))}>
-                        Remover
-                      </button>
-                    </div>
-                  ))}
-                  <div className="linha">
-                    {!faixas.length ? <span className="suave">Fechado</span> : null}
-                    {faixas.length < 10 ? (
-                      <button type="button" className="btn btn-sm" onClick={() => mudarDia(dia, [...faixas, { inicio: '', fim: '' }])}>
-                        Adicionar faixa
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </>
-        ) : null}
-      </section>
-
-      {tem99 ? (
-        <section className="secao">
-          <h3>Somente 99Food</h3>
-          <label className="field campo-curto">
-            <span className="field-label">Tempo de preparo (min)</span>
-            <input className="input input-sm" inputMode="numeric" placeholder="não informado" value={preparo} onChange={(e) => setPreparo(e.target.value)} />
-          </label>
-          <span className="field-label">Telefones (a lista enviada substitui a atual)</span>
-          {telefones.map((t, i) => (
-            <div className="telefone" key={i}>
-              <input className="input input-sm" aria-label="DDI" inputMode="numeric" value={t.ddi} onChange={(e) => mudarTelefone(i, { ddi: e.target.value })} />
-              <input className="input input-sm" aria-label="Número com DDD" inputMode="numeric" placeholder="DDD e número" value={t.numero} onChange={(e) => mudarTelefone(i, { numero: e.target.value })} />
-              <select className="select input-sm" aria-label="Tipo" value={t.tipo} onChange={(e) => mudarTelefone(i, { tipo: e.target.value as TelefoneLoja['tipo'] })}>
-                <option value="CELULAR">Celular</option>
-                <option value="FIXO">Fixo</option>
-              </select>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setTelefones(telefones.filter((_, j) => j !== i))}>
-                Remover
-              </button>
-            </div>
+    <>
+      <form className="card pilha" onSubmit={revisar} onChange={() => setErro('')} noValidate>
+        <h3 style={{ margin: 0, fontSize: 15 }}>Alterar dados</h3>
+        <div className="linha">
+          <span className="field-label">Enviar horários para</span>
+          {ativas.map((p) => (
+            <label className="chave" key={p}>
+              <input type="checkbox" checked={!desmarcadas.includes(p)} onChange={(e) => setDesmarcadas(e.target.checked ? desmarcadas.filter((x) => x !== p) : [...desmarcadas, p])} />
+              {nomeCanal(p)}
+            </label>
           ))}
-          {telefones.length < 5 ? (
-            <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setTelefones([...telefones, { ddi: '55', numero: '', tipo: 'CELULAR' }])}>
-              Adicionar telefone
-            </button>
+        </div>
+
+        <section className="secao">
+          <label className="chave" style={{ alignSelf: 'flex-start' }}>
+            <input type="checkbox" checked={comHorarios} onChange={(e) => setComHorarios(e.target.checked)} />
+            Alterar horários de funcionamento
+          </label>
+          {comHorarios ? (
+            <>
+              <p className="suave">Substitui a semana inteira. Fim menor que o início passa da meia-noite; 24:00 é o fim do dia.</p>
+              {fontes.length > 1 ? (
+                <label className="field campo-curto">
+                  <span className="field-label">Preencher com os horários de</span>
+                  <select
+                    className="select input-sm"
+                    value={fonteAtual}
+                    onChange={(e) => {
+                      const p = e.target.value as CanalPublicacao;
+                      if (semanaMudou) setTrocarFonte(p);
+                      else usarFonte(p);
+                    }}
+                  >
+                    {fontes.map((p) => (
+                      <option key={p} value={p}>
+                        {nomeCanal(p)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {!fontes.length ? <div className="banner banner-warn">Os horários atuais não foram lidos. Preencha a semana inteira antes de enviar.</div> : null}
+              <EditorSemana semana={semana} revisado={revisado} mudar={setSemana} />
+            </>
           ) : null}
         </section>
-      ) : null}
 
-      {erro ? (
-        <div className="banner banner-err" role="alert">
-          {erro}
-        </div>
-      ) : null}
-      <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={enviando}>
-        Revisar e enviar
-      </button>
-      <span className="suave">A 99Food aceita 1 alteração de dados e horários por minuto: envie tudo junto.</span>
-      {resultado ? <Resultado resultado={resultado} /> : null}
-      {pendente ? (
-        <Confirmacao titulo="Enviar alteração da loja?" confirmar="Confirmar e enviar" ocupado={enviando} aoConfirmar={() => void confirmar()} aoCancelar={() => setPendente(null)}>
-          {pendente.plataformas.map((p) => (
-            <strong key={p}>{rotulo(p)}</strong>
-          ))}
-          {pendente.dados.horarios ? (
-            <div className="semana">
-              <span className="field-label">Novos horários (semana inteira)</span>
-              {DIAS.map((nome, i) => (
-                <span key={nome}>
-                  {nome}: {textoFaixas(doDia(pendente.dados.horarios!, i + 1))}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {pendente.dados.tempoPreparoMinutos ? <span>Tempo de preparo na 99Food: {pendente.dados.tempoPreparoMinutos} min</span> : null}
-          {pendente.dados.telefones ? <span>Telefones na 99Food: {pendente.dados.telefones.map(textoTelefone).join(', ')}</span> : null}
+        {tem99 ? (
+          <section className="secao">
+            <h3>Somente 99Food</h3>
+            <label className="field campo-curto">
+              <span className="field-label">Tempo de preparo (min)</span>
+              <input className="input input-sm" inputMode="numeric" placeholder="não informado" value={preparo} onChange={(e) => setPreparo(e.target.value)} />
+            </label>
+            <span className="field-label">Telefones (a lista enviada substitui a atual)</span>
+            {telefones.map((t, i) => (
+              <div className="telefone" key={i}>
+                <input className="input input-sm" aria-label="DDI" inputMode="numeric" value={t.ddi} onChange={(e) => mudarTelefone(i, { ddi: e.target.value })} />
+                <input className="input input-sm" aria-label="Número com DDD" inputMode="numeric" placeholder="DDD e número" value={t.numero} onChange={(e) => mudarTelefone(i, { numero: e.target.value })} />
+                <select className="select input-sm" aria-label="Tipo" value={t.tipo} onChange={(e) => mudarTelefone(i, { tipo: e.target.value as TelefoneLoja['tipo'] })}>
+                  <option value="CELULAR">Celular</option>
+                  <option value="FIXO">Fixo</option>
+                </select>
+                <button type="button" className="btn btn-sm btn-danger" onClick={() => setTelefones(telefones.filter((_, j) => j !== i))}>
+                  Remover
+                </button>
+              </div>
+            ))}
+            {telefones.length < 5 ? (
+              <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setTelefones([...telefones, { ddi: '55', numero: '', tipo: 'CELULAR' }])}>
+                Adicionar telefone
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
+        {erro ? (
+          <div className="banner banner-err" role="alert">
+            {erro}
+          </div>
+        ) : null}
+        <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={enviando}>
+          Revisar alterações
+        </button>
+        <span className="suave">A 99Food aceita 1 alteração de dados e horários por minuto: envie tudo junto.</span>
+        {resultado ? <Resultado resultado={resultado} /> : null}
+      </form>
+
+      {trocarFonte ? (
+        <Confirmacao
+          titulo="Descartar os horários digitados?"
+          confirmar={`Usar horários ${trocarFonte === 'IFOOD' ? 'do iFood' : 'da 99Food'}`}
+          cancelar="Continuar editando"
+          aviso=""
+          perigo
+          aoConfirmar={() => usarFonte(trocarFonte)}
+          aoCancelar={() => setTrocarFonte(null)}
+        >
+          <span>As mudanças feitas na semana serão substituídas pelos horários lidos da plataforma.</span>
         </Confirmacao>
       ) : null}
-    </form>
+      {pendente ? (
+        <Confirmacao titulo="Enviar alteração da loja?" confirmar="Confirmar e enviar" ocupado={enviando} aoConfirmar={() => void confirmar()} aoCancelar={() => setPendente(null)}>
+          {pendente.plataformas.map((p) => {
+            const { horarios, tempoPreparoMinutos: minutos, telefones: novos } = pendente.dados;
+            return (
+              <div className="bloco-loja" key={p}>
+                <strong>{rotulo(p)}</strong>
+                {horarios ? resumoHorarios(p, horarios) : null}
+                {p === '99FOOD' && minutos !== undefined ? <Mudanca rotulo="Tempo de preparo" de={basePreparo ? `${basePreparo} min` : 'não informado'} para={`${minutos} min`} /> : null}
+                {p === '99FOOD' && novos ? <Mudanca rotulo="Telefones" de={textoTelefones(baseTelefones)} para={textoTelefones(novos)} /> : null}
+                {p === 'IFOOD' && (minutos !== undefined || novos) ? <span className="suave">O iFood altera somente os horários: os outros campos voltam como não permitidos.</span> : null}
+              </div>
+            );
+          })}
+          {avisoDeEspera(pendente.plataformas)}
+        </Confirmacao>
+      ) : null}
+    </>
   );
 }
 
-export function DadosLoja({ sessao, notificar, aoAtualizarStatusLoja }: { sessao: Sessao; notificar: Notificar; aoAtualizarStatusLoja: () => Promise<void> }) {
+export function DadosLoja({
+  sessao,
+  notificar,
+  aoAtualizarStatusLoja,
+  aoMudarRascunho,
+}: {
+  sessao: Sessao;
+  notificar: Notificar;
+  aoAtualizarStatusLoja: () => Promise<void>;
+  /** Avisa que ha algo digitado e ainda nao enviado. */
+  aoMudarRascunho: (tem: boolean) => void;
+}) {
   const lojaDe = (p: CanalPublicacao) => sessao.lojas.find((l) => l.plataforma === p && l.estado === 'ATIVA');
   const ativas = (['IFOOD', '99FOOD'] as const).filter(lojaDe);
   const disponivel = !!sessao.cnpj && sessao.temTokenConexao && !sessao.conexaoEncerrada && ativas.length > 0;
-  const [consulta, setConsulta] = useState<ConsultaLoja | null>(null);
+  const [consulta, setConsulta] = useState<Consulta | null>(null);
   const [versao, setVersao] = useState(0);
   const [erro, setErro] = useState('');
   const [consultando, setConsultando] = useState(false);
@@ -587,8 +843,14 @@ export function DadosLoja({ sessao, notificar, aoAtualizarStatusLoja }: { sessao
 
   /** Plataforma que nao respondeu mantem os valores da consulta anterior, com o erro ao lado. */
   const receber = (plataformas: ConsultaLoja['plataformas']) => {
+    const agora = Date.now();
     setConsulta((anterior) => ({
-      plataformas: Object.fromEntries(Object.entries(plataformas).map(([p, l]) => [p, { ...l, dados: l.dados ?? anterior?.plataformas[p as CanalPublicacao]?.dados ?? null }])),
+      plataformas: Object.fromEntries(
+        Object.entries(plataformas).map(([p, l]) => {
+          const antes = anterior?.plataformas[p as CanalPublicacao];
+          return [p, l.dados ? { ...l, consultadoEm: agora } : { ...l, dados: antes?.dados ?? null, consultadoEm: antes?.consultadoEm, anterior: !!antes?.dados }];
+        }),
+      ),
     }));
     setVersao((v) => v + 1);
   };
@@ -637,7 +899,7 @@ export function DadosLoja({ sessao, notificar, aoAtualizarStatusLoja }: { sessao
         ))}
       </div>
       <Funcionamento {...props} aoConcluir={() => void aoAtualizarStatusLoja()} />
-      <Alteracao {...props} versao={versao} />
+      <Alteracao {...props} versao={versao} aoMudarRascunho={aoMudarRascunho} />
     </div>
   );
 }
